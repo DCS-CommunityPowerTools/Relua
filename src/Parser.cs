@@ -262,7 +262,7 @@ namespace Relua {
                 entries.Add(ent);
             }
 
-            while (CurToken.IsPunctuation(",")) {
+            while (CurToken.IsPunctuation(",") || CurToken.IsPunctuation(";")) {
                 Move();
                 if (CurToken.IsPunctuation("}")) break; // trailing comma
                 var ent = ReadTableConstructorEntry();
@@ -271,7 +271,7 @@ namespace Relua {
                     cur_sequential_idx += 1;
                 }
                 entries.Add(ent);
-                if (!CurToken.IsPunctuation(",") && !CurToken.IsPunctuation("}")) ThrowExpect("comma or end of entry list", CurToken);
+                if (!CurToken.IsPunctuation(",") && !CurToken.IsPunctuation(";") && !CurToken.IsPunctuation("}")) ThrowExpect("comma or end of entry list", CurToken);
             }
 
             if (!CurToken.IsPunctuation("}")) ThrowExpect("end of entry list", CurToken);

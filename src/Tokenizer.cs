@@ -352,6 +352,10 @@ namespace Relua {
                 c = CurChar;
             }
 
+            if (EOF) {
+                return Token.EOF;
+            }
+
             if (IsDigit(c)) {
                 Region reg;
                 var val = ReadNumber(out reg);
