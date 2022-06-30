@@ -1,9 +1,13 @@
 ﻿using System;
-using Relua.AST;
+using Relua.Deserialization;
+using Relua.Deserialization.Definitions;
+using Relua.Deserialization.Expressions;
+using Relua.Deserialization.Literals;
+using Relua.Deserialization.Statements;
 
 namespace Relua {
     public interface IVisitor {
-        void Visit(Variable node);
+        void Visit(VariableExpression node);
         void Visit(NilLiteral node);
         void Visit(VarargsLiteral node);
         void Visit(BoolLiteral node);
@@ -11,8 +15,8 @@ namespace Relua {
         void Visit(BinaryOp node);
         void Visit(StringLiteral node);
         void Visit(NumberLiteral node);
-        void Visit(LuaJITLongLiteral node);
-        void Visit(TableAccess node);
+        void Visit(LuaJitLongLiteral node);
+        void Visit(TableAccessExpression node);
         void Visit(FunctionCall node);
         void Visit(TableConstructor node);
         void Visit(TableConstructor.Entry node);
@@ -30,7 +34,7 @@ namespace Relua {
     }
 
     public abstract class Visitor : IVisitor {
-        public virtual void Visit(Variable node) { }
+        public virtual void Visit(VariableExpression node) { }
         public virtual void Visit(NilLiteral node) { }
         public virtual void Visit(VarargsLiteral node) { }
         public virtual void Visit(BoolLiteral node) { }
@@ -38,8 +42,8 @@ namespace Relua {
         public virtual void Visit(BinaryOp node) { }
         public virtual void Visit(StringLiteral node) { }
         public virtual void Visit(NumberLiteral node) { }
-        public virtual void Visit(LuaJITLongLiteral node) { }
-        public virtual void Visit(TableAccess node) { }
+        public virtual void Visit(LuaJitLongLiteral node) { }
+        public virtual void Visit(TableAccessExpression node) { }
         public virtual void Visit(FunctionCall node) { }
         public virtual void Visit(TableConstructor node) { }
         public virtual void Visit(TableConstructor.Entry node) { }

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using Relua.AST;
+using Relua.Deserialization;
+using Relua.Deserialization.Expressions;
 
 namespace Relua {
     /// <summary>
@@ -60,7 +61,7 @@ namespace Relua {
             RightAssociative = right_assoc;
         }
 
-        public AST.BinaryOp.OpType? BinaryOpType {
+        public BinaryOp.OpType? BinaryOpType {
             get {
                 switch (TokenValue) {
                 case "or": return BinaryOp.OpType.Or;
@@ -83,7 +84,7 @@ namespace Relua {
             }
         }
 
-        public AST.UnaryOp.OpType? UnaryOpType {
+        public UnaryOp.OpType? UnaryOpType {
             get {
                 switch (TokenValue) {
                 case "-": return UnaryOp.OpType.Negate;

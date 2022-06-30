@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using Relua.Deserialization.Exceptions;
+using Relua.Exceptions;
 
 namespace Relua {
     public class Tokenizer {

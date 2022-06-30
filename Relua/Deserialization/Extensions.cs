@@ -1,11 +1,12 @@
-﻿using System;
+﻿using Relua.Deserialization;
+using System;
 using System.Text;
 
 namespace Relua {
-    /// <summary>
-    /// Collection of extension methods used internally by Relua.
-    /// </summary>
-    public static class Extensions {
+	/// <summary>
+	/// Collection of extension methods used internally by Relua.
+	/// </summary>
+	public static class Extensions {
         public static bool Contains(this Array ary, object elem) {
             for (var i = 0; i < ary.Length; i++) {
                 if (ary.GetValue(i) == elem) return true;
@@ -49,11 +50,11 @@ namespace Relua {
             if (obj is char) return Inspect((char)obj);
             if (obj is string) return Inspect((string)obj);
             if (obj is Tokenizer.Region) return Inspect((Tokenizer.Region)obj);
-            if (obj is AST.Node) return Inspect((AST.Node)obj);
+            if (obj is Node) return Inspect((Node)obj);
             return obj.ToString();
         }
 
-        public static string Inspect(this AST.Node obj) {
+        public static string Inspect(this Node obj) {
             return $"[{obj.GetType().Name}] {obj.ToString()}";
         }
 

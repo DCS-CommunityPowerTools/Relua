@@ -5,4 +5,8 @@
 		<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
 	</PropertyGroup>
 
+	<ItemGroup>
+	  <Folder Include="Deserialization\Nodes\" />
+	</ItemGroup>
+
 </Project>

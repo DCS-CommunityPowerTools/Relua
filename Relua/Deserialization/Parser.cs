@@ -1,7 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using Relua.AST;
+using Relua.Deserialization;
+using Relua.Deserialization.Definitions;
+using Relua.Deserialization.Exceptions;
+using Relua.Deserialization.Expressions;
+using Relua.Deserialization.Literals;
+using Relua.Deserialization.Statements;
+using Relua.Exceptions;
 
 namespace Relua {
     public class Parser {
@@ -104,14 +110,14 @@ namespace Relua {
             return value ? BoolLiteral.TrueInstance : BoolLiteral.FalseInstance;
         }
 
-        public Variable ReadVariable() {
+        public VariableExpression ReadVariable() {
             if (CurToken.Type != TokenType.Identifier) ThrowExpect("identifier", CurToken);
             if (Tokenizer.RESERVED_KEYWORDS.Contains(CurToken.Value)) Throw($"Cannot use reserved keyword '{CurToken.Value}' as variable name", CurToken);
 
             var name = CurToken.Value;
 
             Move();
-            return new Variable { Name = name };
+            return new VariableExpression { Name = name };
         }
 
         public StringLiteral ReadStringLiteral() {
@@ -142,7 +148,7 @@ namespace Relua {
             return new NumberLiteral { Value = value };
         }
 
-        public LuaJITLongLiteral ReadLuaJITLongLiteral() {
+        public LuaJitLongLiteral ReadLuaJITLongLiteral() {
             if (CurToken.Type != TokenType.Number) ThrowExpect("long number", CurToken);
             if (CurToken.Value.StartsWith("0x", StringComparison.InvariantCulture)) {
                 if (!long.TryParse(CurToken.Value, System.Globalization.NumberStyles.HexNumber | System.Globalization.NumberStyles.AllowHexSpecifier, null, out long hexvalue)) {
@@ -151,7 +157,7 @@ namespace Relua {
 
                 Move();
 
-                return new LuaJITLongLiteral { Value = hexvalue, HexFormat = true };
+                return new LuaJitLongLiteral { Value = hexvalue, HexFormat = true };
             }
 
             if (!long.TryParse(CurToken.Value, out long value)) {
@@ -161,24 +167,24 @@ namespace Relua {
             Move();
             if (!CurToken.IsIdentifier("LL")) ThrowExpect("'LL' suffix", CurToken);
             Move();
-            return new LuaJITLongLiteral { Value = value };
+            return new LuaJitLongLiteral { Value = value };
         }
 
-        public TableAccess ReadTableAccess(IExpression table_expr, bool allow_colon = false) {
-            TableAccess table_node = null;
+        public TableAccessExpression ReadTableAccess(IExpression table_expr, bool allow_colon = false) {
+            TableAccessExpression table_node = null;
 
             if (CurToken.IsPunctuation(".") || (allow_colon && CurToken.IsPunctuation(":"))) {
                 Move();
                 if (CurToken.Type != TokenType.Identifier) ThrowExpect("identifier", CurToken);
                 var index = new StringLiteral { Value = CurToken.Value };
                 Move();
-                table_node = new TableAccess { Table = table_expr, Index = index };
+                table_node = new TableAccessExpression { Table = table_expr, Index = index };
             } else if (CurToken.IsPunctuation("[")) {
                 Move();
                 var index = ReadExpression();
                 if (!CurToken.IsPunctuation("]")) ThrowExpect("closing bracket", CurToken);
                 Move();
-                table_node = new TableAccess { Table = table_expr, Index = index };
+                table_node = new TableAccessExpression { Table = table_expr, Index = index };
             } else ThrowExpect("table access", CurToken);
 
             return table_node;
@@ -683,12 +689,12 @@ namespace Relua {
             if (!CurToken.IsPunctuation("function")) ThrowExpect("function", CurToken);
             Move();
             if (CurToken.Type != TokenType.Identifier) ThrowExpect("identifier", CurToken);
-            IAssignable expr = new Variable { Name = CurToken.Value };
+            IAssignable expr = new VariableExpression { Name = CurToken.Value };
             Move();
             while (CurToken.IsPunctuation(".")) {
                 Move();
                 if (CurToken.Type != TokenType.Identifier) ThrowExpect("identifier", CurToken);
-                expr = new TableAccess {
+                expr = new TableAccessExpression {
                     Table = expr as IExpression,
                     Index = new StringLiteral { Value = CurToken.Value }
                 };
@@ -699,7 +705,7 @@ namespace Relua {
                 is_method_def = true;
                 Move();
                 if (CurToken.Type != TokenType.Identifier) ThrowExpect("identifier", CurToken);
-                expr = new TableAccess {
+                expr = new TableAccessExpression {
                     Table = expr as IExpression,
                     Index = new StringLiteral { Value = CurToken.Value }
                 };
