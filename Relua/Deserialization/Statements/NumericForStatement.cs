@@ -1,9 +1,7 @@
 ﻿using Relua.Deserialization.Literals;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+
+
+
 
 namespace Relua.Deserialization.Statements {
 
@@ -21,33 +19,38 @@ namespace Relua.Deserialization.Statements {
 	/// end
 	/// ```
 	/// </summary>
-	public class NumericFor : For {
+	public class NumericForStatement : ForStatement {
+
 		public string VariableName;
 		public IExpression StartPoint;
 		public IExpression EndPoint;
 		public IExpression Step;
 
+
 		public override void Write(IndentAwareTextWriter writer) {
 			writer.Write("for ");
-			writer.Write(VariableName);
+			writer.Write(this.VariableName);
 			writer.Write(" = ");
-			StartPoint.Write(writer);
+			this.StartPoint.Write(writer);
 			writer.Write(", ");
-			EndPoint.Write(writer);
-			if (Step != null && !(Step is NumberLiteral && ((NumberLiteral)Step).Value == 1)) {
+			this.EndPoint.Write(writer);
+			if (this.Step != null && !(this.Step is NumberLiteral && ((NumberLiteral)this.Step).Value == 1)) {
 				writer.Write(", ");
-				Step.Write(writer);
+				this.Step.Write(writer);
 			}
 			writer.Write(" do");
 			writer.IncreaseIndent();
 			writer.WriteLine();
-			Block.Write(writer, false);
+			this.Block.Write(writer, false);
 			writer.DecreaseIndent();
 			writer.WriteLine();
 			writer.Write("end");
 		}
 
-		public override void Accept(IVisitor visitor) => visitor.Visit(this);
+
+		public override void Accept(IVisitor visitor)
+			=> visitor.Visit(this);
+
 	}
 
 }

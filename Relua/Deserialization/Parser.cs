@@ -1,916 +1,1166 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using Relua.Deserialization;
+﻿using Relua.Deserialization;
 using Relua.Deserialization.Definitions;
 using Relua.Deserialization.Exceptions;
 using Relua.Deserialization.Expressions;
 using Relua.Deserialization.Literals;
 using Relua.Deserialization.Statements;
 using Relua.Exceptions;
+using System;
+using System.Collections.Generic;
+using System.IO;
+
+
+
 
 namespace Relua {
-    public class Parser {
-        /// <summary>
-        /// Settings which control certain behavior of the parser.
-        /// </summary>
-        public class Settings {
-            /// <summary>
-            /// Automatically creates NumberLiterals for sequential elements in
-            /// a table constructor (ones that do not have a key specified).
-            /// 
-            /// Note that if this option is `false`, `AST.TableConstructor.Entry`'s
-            /// `Key` field may be `null`. That field will never be `null` if this
-            /// option is set to `true`.
-            /// </summary>
-            public bool AutofillSequentialKeysInTableConstructor = true;
-
-            /// <summary>
-            /// Automatically creates NilLiterals for all values of empty local
-            /// assignments (in the style of `local a`).
-            /// 
-            /// Note that if this option is `false`, `AST.Assignment`'s `Values`
-            /// list will be empty for local declarations. If it is set to the
-            /// default `true`, the `Values` list will always match the `Targets`
-            /// list in size in that case with all entries being `NilLiteral`s.
-            /// </summary>
-            public bool AutofillValuesInLocalDeclaration = true;
-
-            /// <summary>
-            /// Automatically fills in the `Step` field of `AST.NumericFor` with
-            /// a `NumberLiteral` of value `1` if the statement did not specify
-            /// the step expression.
-            /// </summary>
-            public bool AutofillNumericForStep = true;
-
-            /// <summary>
-            /// If `true`, will parse LuaJIT long numbers (in the form `0LL`)
-            /// into the special AST node `AST.LuaJITLongLiteral`.
-            /// </summary>
-            public bool EnableLuaJITLongs = true;
-
-            /// <summary>
-            /// There are certain syntax quirks such as accessing the fields of
-            /// a string literal (e.g. "abc":match(...)) which Lua will throw a
-            /// syntax error upon seeing, but the Relua parser will happily accept
-            /// (and correctly write). If this option is enabled, all Lua behavior
-            /// is imitated, including errors where they are not strictly necessary.
-            /// </summary>
-            public bool MaintainSyntaxErrorCompatibility = false;
-        }
-
-        public Tokenizer Tokenizer;
-        public Settings ParserSettings;
-
-        public Token CurToken;
-
-        public void Move() {
-            if (CurToken.Type == TokenType.EOF) return;
-            CurToken = Tokenizer.NextToken();
-        }
-
-        public Token PeekToken => Tokenizer.PeekToken;
-
-        public void Throw(string msg, Token tok) {
-            throw new ParserException(msg, tok.Region);
-        }
-
-        public void ThrowExpect(string expected, Token tok) {
-            throw new ParserException($"Expected {expected}, got {tok.Type} ({tok.Value.Inspect()})", tok.Region);
-        }
-
-        public Parser(string data, Settings settings = null) : this(new Tokenizer(data, settings), settings) { }
-
-        public Parser(StreamReader r, Settings settings = null) : this(new Tokenizer(r.ReadToEnd(), settings), settings) { }
-
-        public Parser(Tokenizer tokenizer, Settings settings = null) {
-            ParserSettings = settings ?? new Settings();
-            Tokenizer = tokenizer;
-            CurToken = tokenizer.NextToken();
-        }
-
-        public NilLiteral ReadNilLiteral() {
-            if (CurToken.Value != "nil") ThrowExpect("nil", CurToken);
-            Move();
-            return NilLiteral.Instance;
-        }
-
-        public VarargsLiteral ReadVarargsLiteral() {
-            if (CurToken.Value != "...") ThrowExpect("varargs literal", CurToken);
-            Move();
-            return VarargsLiteral.Instance;
-        }
-
-        public BoolLiteral ReadBoolLiteral() {
-            var value = false;
-            if (CurToken.Value == "true") value = true;
-            else if (CurToken.Value == "false") value = false;
-            else ThrowExpect("bool literal", CurToken);
-            Move();
-            return value ? BoolLiteral.TrueInstance : BoolLiteral.FalseInstance;
-        }
-
-        public VariableExpression ReadVariable() {
-            if (CurToken.Type != TokenType.Identifier) ThrowExpect("identifier", CurToken);
-            if (Tokenizer.RESERVED_KEYWORDS.Contains(CurToken.Value)) Throw($"Cannot use reserved keyword '{CurToken.Value}' as variable name", CurToken);
-
-            var name = CurToken.Value;
-
-            Move();
-            return new VariableExpression { Name = name };
-        }
-
-        public StringLiteral ReadStringLiteral() {
-            if (CurToken.Type != TokenType.QuotedString) ThrowExpect("quoted string", CurToken);
-            var value = CurToken.Value;
-            Move();
-            return new StringLiteral { Value = value };
-        }
-
-        public NumberLiteral ReadNumberLiteral() {
-            if (CurToken.Type != TokenType.Number) ThrowExpect("number", CurToken);
-
-            if (CurToken.Value.StartsWith("0x", StringComparison.InvariantCulture)) {
-                if (!int.TryParse(CurToken.Value.Substring(2), System.Globalization.NumberStyles.AllowHexSpecifier, null, out int hexvalue)) {
-                    ThrowExpect("hex number", CurToken);
-                }
-
-                Move();
-
-                return new NumberLiteral { Value = hexvalue, HexFormat = true };
-            }
-
-            if (!double.TryParse(CurToken.Value, out double value)) {
-                ThrowExpect("number", CurToken);
-            }
-
-            Move();
-            return new NumberLiteral { Value = value };
-        }
-
-        public LuaJitLongLiteral ReadLuaJITLongLiteral() {
-            if (CurToken.Type != TokenType.Number) ThrowExpect("long number", CurToken);
-            if (CurToken.Value.StartsWith("0x", StringComparison.InvariantCulture)) {
-                if (!long.TryParse(CurToken.Value, System.Globalization.NumberStyles.HexNumber | System.Globalization.NumberStyles.AllowHexSpecifier, null, out long hexvalue)) {
-                    ThrowExpect("hex number", CurToken);
-                }
-
-                Move();
-
-                return new LuaJitLongLiteral { Value = hexvalue, HexFormat = true };
-            }
-
-            if (!long.TryParse(CurToken.Value, out long value)) {
-                ThrowExpect("number", CurToken);
-            }
-
-            Move();
-            if (!CurToken.IsIdentifier("LL")) ThrowExpect("'LL' suffix", CurToken);
-            Move();
-            return new LuaJitLongLiteral { Value = value };
-        }
-
-        public TableAccessExpression ReadTableAccess(IExpression table_expr, bool allow_colon = false) {
-            TableAccessExpression table_node = null;
-
-            if (CurToken.IsPunctuation(".") || (allow_colon && CurToken.IsPunctuation(":"))) {
-                Move();
-                if (CurToken.Type != TokenType.Identifier) ThrowExpect("identifier", CurToken);
-                var index = new StringLiteral { Value = CurToken.Value };
-                Move();
-                table_node = new TableAccessExpression { Table = table_expr, Index = index };
-            } else if (CurToken.IsPunctuation("[")) {
-                Move();
-                var index = ReadExpression();
-                if (!CurToken.IsPunctuation("]")) ThrowExpect("closing bracket", CurToken);
-                Move();
-                table_node = new TableAccessExpression { Table = table_expr, Index = index };
-            } else ThrowExpect("table access", CurToken);
-
-            return table_node;
-        }
-
-        public FunctionCall ReadFunctionCall(IExpression func_expr, IExpression self_expr = null) {
-            if (!CurToken.IsPunctuation("(")) ThrowExpect("start of argument list", CurToken);
-            Move();
-
-            var args = new List<IExpression>();
-
-            if (self_expr != null) {
-                args.Add(self_expr);
-            }
-
-            if (!CurToken.IsPunctuation(")")) args.Add(ReadExpression());
-
-            while (CurToken.IsPunctuation(",")) {
-                Move();
-                var expr = ReadExpression();
-                args.Add(expr);
-                if (!CurToken.IsPunctuation(",") && !CurToken.IsPunctuation(")")) ThrowExpect("comma or end of argument list", CurToken);
-            }
-            if (!CurToken.IsPunctuation(")")) ThrowExpect("end of argument list", CurToken);
-            Move();
-
-            return new FunctionCall { Function = func_expr, Arguments = args };
-        }
-
-
-        public TableConstructor.Entry ReadTableConstructorEntry() {
-            if (CurToken.Type == TokenType.Identifier) {
-                var eq = PeekToken;
-                if (eq.IsPunctuation("=")) {
-                    // { a = ... }
-
-                    var key = new StringLiteral { Value = CurToken.Value };
-                    Move();
-                    Move(); // =
-                    var value = ReadExpression();
-                    return new TableConstructor.Entry { ExplicitKey = true, Key = key, Value = value };
-                } else {
-                    // { a }
-                    var value = ReadExpression();
-                    return new TableConstructor.Entry { ExplicitKey = false, Value = value };
-                    // Note - Key is null
-                    // This is filled in in ReadTableConstructor
-                }
-            } else if (CurToken.IsPunctuation("[")) {
-                // { [expr] = ... }
-                Move();
-                var key = ReadExpression();
-                if (!CurToken.IsPunctuation("]")) ThrowExpect("end of key", CurToken);
-                Move();
-                if (!CurToken.IsPunctuation("=")) ThrowExpect("assignment", CurToken);
-                Move();
-                var value = ReadExpression();
-                return new TableConstructor.Entry { ExplicitKey = true, Key = key, Value = value };
-            } else {
-                // { expr }
-                return new TableConstructor.Entry { ExplicitKey = false, Value = ReadExpression() };
-                // Note - Key is null
-                // This is filled in in ReadTableConstructor
-            }
-        }
-
-        public TableConstructor ReadTableConstructor() {
-            if (!CurToken.IsPunctuation("{")) ThrowExpect("table constructor", CurToken);
-            Move();
-
-            var entries = new List<TableConstructor.Entry>();
-
-            var cur_sequential_idx = 1;
-
-            if (!CurToken.IsPunctuation("}")) {
-                var ent = ReadTableConstructorEntry();
-                if (ParserSettings.AutofillSequentialKeysInTableConstructor && ent.Key == null) {
-                    ent.Key = new NumberLiteral { Value = cur_sequential_idx };
-                    cur_sequential_idx += 1;
-                }
-                entries.Add(ent);
-            }
-
-            while (CurToken.IsPunctuation(",") || CurToken.IsPunctuation(";")) {
-                Move();
-                if (CurToken.IsPunctuation("}")) break; // trailing comma
-                var ent = ReadTableConstructorEntry();
-                if (ParserSettings.AutofillSequentialKeysInTableConstructor && ent.Key == null) {
-                    ent.Key = new NumberLiteral { Value = cur_sequential_idx };
-                    cur_sequential_idx += 1;
-                }
-                entries.Add(ent);
-                if (!CurToken.IsPunctuation(",") && !CurToken.IsPunctuation(";") && !CurToken.IsPunctuation("}")) ThrowExpect("comma or end of entry list", CurToken);
-            }
-
-            if (!CurToken.IsPunctuation("}")) ThrowExpect("end of entry list", CurToken);
-            Move();
-
-            return new TableConstructor { Entries = entries };
-        }
-
-        public FunctionDefinition ReadFunctionDefinition(bool start_from_params = false, bool self = false) {
-            if (!start_from_params) {
-                if (!CurToken.IsPunctuation("function")) ThrowExpect("function", CurToken);
-                Move();
-            }
-
-            if (!CurToken.IsPunctuation("(")) ThrowExpect("start of argument name list", CurToken);
-            Move();
-
-            var varargs = false;
-            var args = new List<string>();
-
-            if (self) args.Add("self");
-
-            if (!CurToken.IsPunctuation(")")) {
-                if (CurToken.Type != TokenType.Identifier) ThrowExpect("identifier", CurToken);
-                args.Add(CurToken.Value);
-                Move();
-            }
-
-            while (CurToken.IsPunctuation(",")) {
-                Move();
-                if (CurToken.IsPunctuation("...")) {
-                    varargs = true;
-                    Move();
-                    break;
-                }
-                if (CurToken.Type != TokenType.Identifier) ThrowExpect("identifier", CurToken);
-                args.Add(CurToken.Value);
-                Move();
-            }
-
-            if (!CurToken.IsPunctuation(")")) ThrowExpect("end of argument name list", CurToken);
-            Move();
-
-            SkipSemicolons();
-
-            var statements = new List<IStatement>();
-            while (!CurToken.IsPunctuation("end") && !CurToken.IsEOF()) {
-                statements.Add(ReadStatement());
-            }
-
-            Move();
-
-            return new FunctionDefinition {
-                ArgumentNames = args,
-                Block = new Block { Statements = statements },
-                AcceptsVarargs = varargs,
-                ImplicitSelf = self
-            };
-        }
-
-        // Primary expression:
-        // - Does not depend on any expressions.
-        public IExpression ReadPrimaryExpression() {
-            if (CurToken.Type == TokenType.QuotedString) {
-                return ReadStringLiteral();
-            }
-
-            if (CurToken.Type == TokenType.Number) {
-                if (ParserSettings.EnableLuaJITLongs && PeekToken.IsIdentifier("LL")) {
-                    return ReadLuaJITLongLiteral();
-                } else {
-                    return ReadNumberLiteral();
-                }
-            }
-
-            if (CurToken.Type == TokenType.Punctuation) {
-                if (CurToken.Value == "{") return ReadTableConstructor();
-                if (CurToken.Value == "...") return ReadVarargsLiteral();
-                if (CurToken.Value == "nil") return ReadNilLiteral();
-                if (CurToken.Value == "true" || CurToken.Value == "false") {
-                    return ReadBoolLiteral();
-                }
-                if (CurToken.Value == "function") {
-                    return ReadFunctionDefinition();
-                }
-
-            } else if (CurToken.Type == TokenType.Identifier) {
-                return ReadVariable();
-            }
-
-            ThrowExpect("expression", CurToken);
-            throw new Exception("unreachable");
-        }
-
-        public OperatorInfo? GetBinaryOperator(Token tok) {
-            if (tok.Value == null) return null;
-            var op = OperatorInfo.FromToken(tok);
-            if (op == null) return null;
-            if (!op.Value.IsBinary) ThrowExpect("binary operator", tok);
-
-            return op.Value;
-        }
-
-        // Secondary expression:
-        // - Depends on (alters the value of) *one* expression.
-        public IExpression ReadSecondaryExpression() {
-            var unary_op = OperatorInfo.FromToken(CurToken);
-
-            if (unary_op != null && unary_op.Value.IsUnary) {
-                Move();
-            }
-
-            IExpression expr;
-
-            if (CurToken.IsPunctuation("(")) {
-                Move();
-                var complex = ReadComplexExpression(ReadSecondaryExpression(), 0, true);
-                if (!CurToken.IsPunctuation(")")) {
-                    ThrowExpect("closing parenthesis", CurToken);
-                }
-                Move();
-                expr = complex;
-                if (expr is FunctionCall) {
-                    ((FunctionCall)expr).ForceTruncateReturnValues = true;
-                }
-            } else expr = ReadPrimaryExpression();
-
-            while (CurToken.IsPunctuation(".") || CurToken.IsPunctuation("[")) {
-                if (expr is FunctionCall) ((FunctionCall)expr).ForceTruncateReturnValues = false;
-
-                if (expr is StringLiteral && ParserSettings.MaintainSyntaxErrorCompatibility) {
-                    Throw($"syntax error compat: can't directly index strings, use parentheses", CurToken);
-                }
-                expr = ReadTableAccess(expr);
-            }
-
-            while (CurToken.IsPunctuation(":")) {
-                if (expr is FunctionCall) ((FunctionCall)expr).ForceTruncateReturnValues = false;
-
-                if (expr is StringLiteral && ParserSettings.MaintainSyntaxErrorCompatibility) {
-                   Throw($"syntax error compat: can't directly index strings, use parentheses", CurToken);
-                }
-                var self_expr = expr;
-                expr = ReadTableAccess(expr, allow_colon: true);
-                expr = ReadFunctionCall(expr, self_expr);
-            }
-
-            if (CurToken.IsPunctuation("(")) {
-                if (expr is FunctionCall) ((FunctionCall)expr).ForceTruncateReturnValues = false;
-
-                if (expr is StringLiteral && ParserSettings.MaintainSyntaxErrorCompatibility) {
-                    Throw($"syntax error compat: can't directly call strings, use parentheses", CurToken); 
-                }
-                expr = ReadFunctionCall(expr);
-            } else if (CurToken.IsPunctuation("{")) {
-                if (expr is FunctionCall) ((FunctionCall)expr).ForceTruncateReturnValues = false;
-
-                if (expr is StringLiteral && ParserSettings.MaintainSyntaxErrorCompatibility) {
-                    Throw($"syntax error compat: can't directly call strings, use parentheses", CurToken);
-                }
-                expr = new FunctionCall {
-                    Function = expr,
-                    Arguments = new List<IExpression> { ReadTableConstructor() }
-                };
-            } else if (CurToken.Type == TokenType.QuotedString) {
-                if (expr is FunctionCall) ((FunctionCall)expr).ForceTruncateReturnValues = false;
-
-                if (expr is StringLiteral && ParserSettings.MaintainSyntaxErrorCompatibility) {
-                    Throw($"syntax error compat: can't directly call strings, use parentheses", CurToken);
-                }
-                expr = new FunctionCall {
-                    Function = expr,
-                    Arguments = new List<IExpression> { ReadStringLiteral() }
-                };
-            }
-
-            if (unary_op != null && unary_op.Value.IsUnary) {
-                if (expr is FunctionCall) ((FunctionCall)expr).ForceTruncateReturnValues = false;
-
-                expr = new UnaryOp(unary_op.Value.UnaryOpType.Value, expr);
-            }
-
-            return expr;
-        }
-
-        // Complex expression:
-        // - Depends on (alters the value of) *two* expressions.
-        public IExpression ReadComplexExpression(IExpression lhs, int prev_op_prec, bool in_parens, int depth = 0) {
-            var lookahead = GetBinaryOperator(CurToken);
-            if (lookahead == null) return lhs;
-
-            //Console.WriteLine($"{new string(' ', depth)}RCE: lhs = {lhs} lookahead = {lookahead.Value.TokenValue} prev_op_prec = {prev_op_prec}");
-
-            if (lhs is FunctionCall) {
-                ((FunctionCall)lhs).ForceTruncateReturnValues = false;
-                // No need to force this (and produce extra parens),
-                // because the binop truncates the return value anyway
-            }
-
-            while (lookahead.Value.Precedence >= prev_op_prec) {
-                var op = lookahead;
-                Move();
-                var rhs = ReadSecondaryExpression();
-                if (rhs is FunctionCall) {
-                    ((FunctionCall)rhs).ForceTruncateReturnValues = false;
-                }
-                lookahead = GetBinaryOperator(CurToken);
-                if (lookahead == null) return new BinaryOp(op.Value.BinaryOpType.Value, lhs, rhs);
-                //Console.WriteLine($"{new string(' ', depth)}OUT rhs = {rhs} lookahead = {lookahead.Value.TokenValue} prec = {lookahead.Value.Precedence}");
-
-                while (lookahead.Value.RightAssociative ? (lookahead.Value.Precedence == op.Value.Precedence) : (lookahead.Value.Precedence > op.Value.Precedence)) {
-                    rhs = ReadComplexExpression(rhs, lookahead.Value.Precedence, in_parens, depth + 1);
-                    //Console.WriteLine($"{new string(' ', depth)}IN rhs = {rhs} lookahead = {lookahead.Value.TokenValue}");
-                    lookahead = GetBinaryOperator(CurToken);
-                    if (lookahead == null) return new BinaryOp(op.Value.BinaryOpType.Value, lhs, rhs);
-                }
-
-                lhs = new BinaryOp(op.Value.BinaryOpType.Value, lhs, rhs);
-            }
-
-            return lhs;
-        }
-
-        /// <summary>
-        /// Reads a single expression.
-        /// </summary>
-        /// <returns>The expression.</returns>
-        public IExpression ReadExpression() {
-            var expr = ReadSecondaryExpression();
-            return ReadComplexExpression(expr, 0, false);
-        }
-
-        public Break ReadBreak() {
-            if (!CurToken.IsPunctuation("break")) ThrowExpect("break statement", CurToken);
-            Move();
-            return new Break();
-        }
-
-        public Return ReadReturn() {
-            if (!CurToken.IsPunctuation("return")) ThrowExpect("return statement", CurToken);
-            Move();
-
-            var ret_vals = new List<IExpression>();
-
-            if (!CurToken.IsPunctuation("end")) {
-                ret_vals.Add(ReadExpression());
-            }
-
-            while (CurToken.IsPunctuation(",")) {
-                Move();
-                ret_vals.Add(ReadExpression());
-            }
-
-            return new Return { Expressions = ret_vals };
-        }
-
-        public If ReadIf() {
-            if (!CurToken.IsPunctuation("if")) ThrowExpect("if statement", CurToken);
-
-            Move();
-
-            var cond = ReadExpression();
-
-            if (!CurToken.IsPunctuation("then")) ThrowExpect("'then' keyword", CurToken);
-            Move();
-
-            var statements = new List<IStatement>();
-
-            while (!CurToken.IsPunctuation("else") && !CurToken.IsPunctuation("elseif") && !CurToken.IsPunctuation("end") && !CurToken.IsEOF()) {
-                statements.Add(ReadStatement());
-            }
-
-            var mainif_cond_block = new ConditionalBlock {
-                Block = new Block { Statements = statements },
-                Condition = cond
-            };
-
-            var elseifs = new List<ConditionalBlock>();
-
-            while (CurToken.IsPunctuation("elseif")) {
-                Move();
-                var elseif_cond = ReadExpression();
-                if (!CurToken.IsPunctuation("then")) ThrowExpect("'then' keyword", CurToken);
-                Move();
-                var elseif_statements = new List<IStatement>();
-                while (!CurToken.IsPunctuation("else") && !CurToken.IsPunctuation("elseif") && !CurToken.IsPunctuation("end") && !CurToken.IsEOF()) {
-                    elseif_statements.Add(ReadStatement());
-                }
-
-                elseifs.Add(new ConditionalBlock {
-                    Block = new Block { Statements = elseif_statements },
-                    Condition = elseif_cond
-                });
-            }
-
-            Block else_block = null;
-
-            if (CurToken.IsPunctuation("else")) {
-                Move();
-                var else_statements = new List<IStatement>();
-                while (!CurToken.IsPunctuation("end") && !CurToken.IsEOF()) {
-                    else_statements.Add(ReadStatement());
-                }
-
-                else_block = new Block { Statements = else_statements };
-            }
-
-            if (!CurToken.IsPunctuation("end")) ThrowExpect("'end' keyword", CurToken);
-            Move();
-
-            return new If {
-                MainIf = mainif_cond_block,
-                ElseIfs = elseifs,
-                Else = else_block
-            };
-        }
-
-        public void SkipSemicolons() {
-            while (CurToken.IsPunctuation(";")) Move();
-        }
-
-        public While ReadWhile() {
-            if (!CurToken.IsPunctuation("while")) ThrowExpect("while statement", CurToken);
-
-            Move();
-            var cond = ReadExpression();
-
-            if (!CurToken.IsPunctuation("do")) ThrowExpect("'do' keyword", CurToken);
-            Move();
-
-            SkipSemicolons();
-
-            var statements = new List<IStatement>();
-
-            while (!CurToken.IsPunctuation("end") && !CurToken.IsEOF()) {
-                statements.Add(ReadStatement());
-            }
-            Move();
-
-            return new While {
-                Condition = cond,
-                Block = new Block { Statements = statements }
-            };
-        }
-
-        public Assignment TryReadFullAssignment(bool certain_assign, IExpression start_expr, Token expr_token) {
-            // certain_assign should be set to true if we know that
-            // what we have is definitely an assignment
-            // that allows us to handle implicit nil assignments (local
-            // declarations without a value) as an Assignment node
-
-            if (certain_assign || (CurToken.IsPunctuation("=") || CurToken.IsPunctuation(","))) {
-                if (!(start_expr is IAssignable)) ThrowExpect("assignable expression", expr_token);
-
-                var assign_exprs = new List<IAssignable> { start_expr as IAssignable };
-
-                while (CurToken.IsPunctuation(",")) {
-                    Move();
-                    start_expr = ReadExpression();
-                    if (!(start_expr is IAssignable)) ThrowExpect("assignable expression", expr_token);
-
-                    assign_exprs.Add(start_expr as IAssignable);
-                }
-
-                if (certain_assign && !CurToken.IsPunctuation("=")) {
-                    // implicit nil assignment/local declaration
-
-                    var local_decl = new Assignment {
-                        IsLocal = true,
-                        Targets = assign_exprs
-                    };
-
-                    if (ParserSettings.AutofillValuesInLocalDeclaration) {
-                        // Match Values with NilLiterals
-                        for (var i = 0; i < assign_exprs.Count; i++) {
-                            local_decl.Values.Add(NilLiteral.Instance);
-                        }
-                    }
-
-                    return local_decl;
-                }
-
-                return ReadAssignment(assign_exprs);
-            }
-
-
-
-            return null;
-        }
-
-        public Assignment ReadAssignment(List<IAssignable> assignable_exprs, bool local = false) {
-            if (!CurToken.IsPunctuation("=")) ThrowExpect("assignment", CurToken);
-            Move();
-            var value_exprs = new List<IExpression> { ReadExpression() };
-
-            while (CurToken.IsPunctuation(",")) {
-                Move();
-                value_exprs.Add(ReadExpression());
-            }
-
-            return new Assignment {
-                IsLocal = local,
-                Targets = assignable_exprs,
-                Values = value_exprs,
-            };
-        }
-
-        public Assignment ReadNamedFunctionDefinition() {
-            if (!CurToken.IsPunctuation("function")) ThrowExpect("function", CurToken);
-            Move();
-            if (CurToken.Type != TokenType.Identifier) ThrowExpect("identifier", CurToken);
-            IAssignable expr = new VariableExpression { Name = CurToken.Value };
-            Move();
-            while (CurToken.IsPunctuation(".")) {
-                Move();
-                if (CurToken.Type != TokenType.Identifier) ThrowExpect("identifier", CurToken);
-                expr = new TableAccessExpression {
-                    Table = expr as IExpression,
-                    Index = new StringLiteral { Value = CurToken.Value }
-                };
-                Move();
-            }
-            var is_method_def = false;
-            if (CurToken.IsPunctuation(":")) {
-                is_method_def = true;
-                Move();
-                if (CurToken.Type != TokenType.Identifier) ThrowExpect("identifier", CurToken);
-                expr = new TableAccessExpression {
-                    Table = expr as IExpression,
-                    Index = new StringLiteral { Value = CurToken.Value }
-                };
-                Move();
-            }
-            var func_def = ReadFunctionDefinition(start_from_params: true, self: is_method_def);
-            return new Assignment {
-                Targets = new List<IAssignable> { expr },
-                Values = new List<IExpression> { func_def }
-            };
-        }
-
-        public Repeat ReadRepeat() {
-            if (!CurToken.IsPunctuation("repeat")) ThrowExpect("repeat statement", CurToken);
-            Move();
-            SkipSemicolons();
-            var statements = new List<IStatement>();
-            while (!CurToken.IsPunctuation("until") && !CurToken.IsEOF()) {
-                statements.Add(ReadStatement());
-            }
-
-            if (!CurToken.IsPunctuation("until")) ThrowExpect("'until' keyword", CurToken);
-            Move();
-
-            var cond = ReadExpression();
-
-            return new Repeat {
-                Condition = cond,
-                Block = new Block { Statements = statements }
-            };
-        }
-
-        public Block ReadBlock(bool alone = false) {
-            if (!CurToken.IsPunctuation("do")) ThrowExpect("block", CurToken);
-            Move();
-            SkipSemicolons();
-
-            var statements = new List<IStatement>();
-            while (!CurToken.IsPunctuation("end") && !CurToken.IsEOF()) {
-                statements.Add(ReadStatement());
-            }
-
-            Move();
-
-            return new Block { Statements = statements };
-        }
-
-        public GenericFor ReadGenericFor() {
-            if (CurToken.Type != TokenType.Identifier) ThrowExpect("identifier", CurToken);
-
-            var var_names = new List<string> { CurToken.Value };
-            Move();
-
-            while (CurToken.IsPunctuation(",")) {
-                Move();
-                if (CurToken.Type != TokenType.Identifier) ThrowExpect("identifier", CurToken);
-                var_names.Add(CurToken.Value);
-                Move();
-            }
-
-            if (!CurToken.IsPunctuation("in")) ThrowExpect("'in' keyword", CurToken);
-            Move();
-
-            var iterator = ReadExpression();
-            var block = ReadBlock();
-
-            return new GenericFor {
-                VariableNames = var_names,
-                Iterator = iterator,
-                Block = block
-            };
-        }
-
-        public NumericFor ReadNumericFor() {
-            if (CurToken.Type != TokenType.Identifier) ThrowExpect("identifier", CurToken);
-
-            var var_name = CurToken.Value;
-            Move();
-
-            if (!CurToken.IsPunctuation("=")) ThrowExpect("assignment", CurToken);
-            Move();
-
-            var start_pos = ReadExpression();
-            if (!CurToken.IsPunctuation(",")) ThrowExpect("end point expression", CurToken);
-            Move();
-            var end_pos = ReadExpression();
-
-            IExpression step = null;
-            if (CurToken.IsPunctuation(",")) {
-                Move();
-                step = ReadExpression();
-            }
-
-            if (step == null && ParserSettings.AutofillNumericForStep) {
-                step = new NumberLiteral { Value = 1 };
-            }
-
-            var block = ReadBlock();
-
-            return new NumericFor {
-                VariableName = var_name,
-                StartPoint = start_pos,
-                EndPoint = end_pos,
-                Step = step,
-                Block = block
-            };
-        }
-
-        public For ReadFor() {
-            if (!CurToken.IsPunctuation("for")) ThrowExpect("for statement", CurToken);
-
-            Move();
-
-            var peek = PeekToken;
-            if (peek.IsPunctuation(",") || peek.IsPunctuation("in")) {
-                return ReadGenericFor();
-            } else {
-                return ReadNumericFor();
-            }
-        }
-
-        public IStatement ReadPrimaryStatement() {
-            if (CurToken.IsPunctuation("break")) {
-                return ReadBreak();
-            }
-
-            if (CurToken.IsPunctuation("return")) {
-                return ReadReturn();
-            }
-
-            if (CurToken.IsPunctuation("if")) {
-                return ReadIf();
-            }
-
-            if (CurToken.IsPunctuation("while")) {
-                return ReadWhile();
-            }
-
-            if (CurToken.IsPunctuation("function")) {
-                return ReadNamedFunctionDefinition();
-            }
-
-            if (CurToken.IsPunctuation("repeat")) {
-                return ReadRepeat();
-            }
-
-            if (CurToken.IsPunctuation("for")) {
-                return ReadFor();
-            }
-
-            if (CurToken.IsPunctuation("do")) {
-                return ReadBlock(alone: true);
-            }
-
-            if (CurToken.IsPunctuation("local")) {
-                Move();
-                if (CurToken.IsPunctuation("function")) {
-                    var local_assign = ReadNamedFunctionDefinition();
-                    local_assign.IsLocal = true;
-                    return local_assign;
-                } else {
-                    var local_expr_token = CurToken;
-                    var local_expr = ReadExpression();
-                    var local_assign = TryReadFullAssignment(true, local_expr, local_expr_token);
-                    if (local_assign == null) ThrowExpect("assignment statement", CurToken);
-                    local_assign.IsLocal = true;
-                    return local_assign;
-                }
-            }
-
-            var expr_token = CurToken;
-            var expr = ReadExpression();
-            var assign = TryReadFullAssignment(false, expr, expr_token);
-            if (assign != null) return assign;
-
-            if (expr is FunctionCall) {
-                return expr as FunctionCall;
-            }
-
-            ThrowExpect("statement", expr_token);
-            throw new Exception("unreachable");
-        }
-
-        /// <summary>
-        /// Reads a single statement.
-        /// </summary>
-        /// <returns>The statement.</returns>
-        public IStatement ReadStatement() {
-            var stat = ReadPrimaryStatement();
-            SkipSemicolons();
-            return stat;
-        }
-
-        /// <summary>
-        /// Reads a list of statements.
-        /// </summary>
-        /// <returns>`Block` node (`TopLevel` = `true`).</returns>
-        public Block Read() {
-            var statements = new List<IStatement>();
-
-            while (!CurToken.IsEOF()) {
-                statements.Add(ReadStatement());
-            }
-
-            return new Block { Statements = statements, TopLevel = true };
-        }
-    }
+
+	public class Parser {
+
+		/// <summary>
+		/// Settings which control certain behavior of the parser.
+		/// </summary>
+		public class Settings {
+
+			/// <summary>
+			/// Automatically creates NumberLiterals for sequential elements in
+			/// a table constructor (ones that do not have a key specified).
+			/// 
+			/// Note that if this option is `false`, `AST.TableConstructor.Entry`'s
+			/// `Key` field may be `null`. That field will never be `null` if this
+			/// option is set to `true`.
+			/// </summary>
+			public bool AutofillSequentialKeysInTableConstructor = true;
+
+			/// <summary>
+			/// Automatically creates NilLiterals for all values of empty local
+			/// assignments (in the style of `local a`).
+			/// 
+			/// Note that if this option is `false`, `AST.Assignment`'s `Values`
+			/// list will be empty for local declarations. If it is set to the
+			/// default `true`, the `Values` list will always match the `Targets`
+			/// list in size in that case with all entries being `NilLiteral`s.
+			/// </summary>
+			public bool AutofillValuesInLocalDeclaration = true;
+
+			/// <summary>
+			/// Automatically fills in the `Step` field of `AST.NumericFor` with
+			/// a `NumberLiteral` of value `1` if the statement did not specify
+			/// the step expression.
+			/// </summary>
+			public bool AutofillNumericForStep = true;
+
+			/// <summary>
+			/// If `true`, will parse LuaJIT long numbers (in the form `0LL`)
+			/// into the special AST node `AST.LuaJitLongLiteral`.
+			/// </summary>
+			public bool EnableLuaJitLongs = true;
+
+			/// <summary>
+			/// There are certain syntax quirks such as accessing the fields of
+			/// a string literal (e.g. "abc":match(...)) which Lua will throw a
+			/// syntax error upon seeing, but the Relua parser will happily accept
+			/// (and correctly write). If this option is enabled, all Lua behavior
+			/// is imitated, including errors where they are not strictly necessary.
+			/// </summary>
+			public bool MaintainSyntaxErrorCompatibility = false;
+
+		}
+
+
+
+
+		public Tokenizer Tokenizer;
+		public Settings ParserSettings;
+
+		public Token CurToken;
+
+
+
+
+		public Token PeekToken => this.Tokenizer.PeekToken;
+
+
+
+
+		public Parser(string data, Settings settings = null) : this(new Tokenizer(data, settings), settings) { }
+
+		public Parser(StreamReader r, Settings settings = null) : this(new Tokenizer(r.ReadToEnd(), settings), settings) { }
+
+		public Parser(Tokenizer tokenizer, Settings settings = null) {
+			this.ParserSettings = settings ?? new Settings();
+			this.Tokenizer = tokenizer;
+			this.CurToken = tokenizer.NextToken();
+		}
+
+
+
+
+		public void Throw(string msg, Token tok) {
+			throw new ParserException(msg, tok.Region);
+		}
+
+		public void ThrowExpect(string expected, Token tok) {
+			throw new ParserException($"Expected {expected}, got {tok.Type} ({tok.Value.Inspect()})", tok.Region);
+		}
+
+
+
+
+		public void Move() {
+			if (this.CurToken.Type == TokenType.EOF) {
+				return;
+			}
+
+			this.CurToken = this.Tokenizer.NextToken();
+		}
+
+
+
+
+		public NilLiteral ReadNilLiteral() {
+			if (this.CurToken.Value != "nil") {
+				this.ThrowExpect("nil", this.CurToken);
+			}
+
+			this.Move();
+			return NilLiteral.Instance;
+		}
+
+
+		public VarargsLiteral ReadVarargsLiteral() {
+			if (this.CurToken.Value != "...") {
+				this.ThrowExpect("varargs literal", this.CurToken);
+			}
+
+			this.Move();
+			return VarargsLiteral.Instance;
+		}
+
+
+		public BoolLiteral ReadBoolLiteral() {
+			bool value = false;
+			if (this.CurToken.Value == "true") {
+				value = true;
+			} else if (this.CurToken.Value == "false") {
+				value = false;
+			} else {
+				this.ThrowExpect("bool literal", this.CurToken);
+			}
+
+			this.Move();
+			return value ? BoolLiteral.TrueInstance : BoolLiteral.FalseInstance;
+		}
+
+
+		public VariableExpression ReadVariable() {
+			if (this.CurToken.Type != TokenType.Identifier) {
+				this.ThrowExpect("identifier", this.CurToken);
+			}
+
+			if (Tokenizer.RESERVED_KEYWORDS.Contains(this.CurToken.Value)) {
+				this.Throw($"Cannot use reserved keyword '{this.CurToken.Value}' as variable name", this.CurToken);
+			}
+
+			string name = this.CurToken.Value;
+
+			this.Move();
+			return new VariableExpression { Name = name };
+		}
+
+
+		public StringLiteral ReadStringLiteral() {
+			if (this.CurToken.Type != TokenType.QuotedString) {
+				this.ThrowExpect("quoted string", this.CurToken);
+			}
+
+			string value = this.CurToken.Value;
+			this.Move();
+			return new StringLiteral { Value = value };
+		}
+
+
+		public NumberLiteral ReadNumberLiteral() {
+			if (this.CurToken.Type != TokenType.Number) {
+				this.ThrowExpect("number", this.CurToken);
+			}
+
+			if (this.CurToken.Value.StartsWith("0x", StringComparison.InvariantCulture)) {
+				if (!int.TryParse(this.CurToken.Value.Substring(2), System.Globalization.NumberStyles.AllowHexSpecifier, null, out int hexvalue)) {
+					this.ThrowExpect("hex number", this.CurToken);
+				}
+
+				this.Move();
+
+				return new NumberLiteral { Value = hexvalue, HexFormat = true };
+			}
+
+			if (!double.TryParse(this.CurToken.Value, out double value)) {
+				this.ThrowExpect("number", this.CurToken);
+			}
+
+			this.Move();
+			return new NumberLiteral { Value = value };
+		}
+
+
+		public LuaJitLongLiteral ReadLuaJitLongLiteral() {
+			if (this.CurToken.Type != TokenType.Number) {
+				this.ThrowExpect("long number", this.CurToken);
+			}
+
+			if (this.CurToken.Value.StartsWith("0x", StringComparison.InvariantCulture)) {
+				if (!long.TryParse(this.CurToken.Value, System.Globalization.NumberStyles.HexNumber | System.Globalization.NumberStyles.AllowHexSpecifier, null, out long hexvalue)) {
+					this.ThrowExpect("hex number", this.CurToken);
+				}
+
+				this.Move();
+
+				return new LuaJitLongLiteral { Value = hexvalue, HexFormat = true };
+			}
+
+			if (!long.TryParse(this.CurToken.Value, out long value)) {
+				this.ThrowExpect("number", this.CurToken);
+			}
+
+			this.Move();
+			if (!this.CurToken.IsIdentifier("LL")) {
+				this.ThrowExpect("'LL' suffix", this.CurToken);
+			}
+
+			this.Move();
+			return new LuaJitLongLiteral { Value = value };
+		}
+
+
+		public TableAccessExpression ReadTableAccess(IExpression table_expr, bool allow_colon = false) {
+			TableAccessExpression table_node = null;
+
+			if (this.CurToken.IsPunctuation(".") || (allow_colon && this.CurToken.IsPunctuation(":"))) {
+				this.Move();
+				if (this.CurToken.Type != TokenType.Identifier) {
+					this.ThrowExpect("identifier", this.CurToken);
+				}
+
+				StringLiteral index = new StringLiteral { Value = this.CurToken.Value };
+				this.Move();
+				table_node = new TableAccessExpression { Table = table_expr, Index = index };
+			} else if (this.CurToken.IsPunctuation("[")) {
+				this.Move();
+				IExpression index = this.ReadExpression();
+				if (!this.CurToken.IsPunctuation("]")) {
+					this.ThrowExpect("closing bracket", this.CurToken);
+				}
+
+				this.Move();
+				table_node = new TableAccessExpression { Table = table_expr, Index = index };
+			} else {
+				this.ThrowExpect("table access", this.CurToken);
+			}
+
+			return table_node;
+		}
+
+
+		public FunctionCallExpression ReadFunctionCall(IExpression func_expr, IExpression self_expr = null) {
+			if (!this.CurToken.IsPunctuation("(")) {
+				this.ThrowExpect("start of argument list", this.CurToken);
+			}
+
+			this.Move();
+
+			List<IExpression> args = new List<IExpression>();
+
+			if (self_expr != null) {
+				args.Add(self_expr);
+			}
+
+			if (!this.CurToken.IsPunctuation(")")) {
+				args.Add(this.ReadExpression());
+			}
+
+			while (this.CurToken.IsPunctuation(",")) {
+				this.Move();
+				IExpression expr = this.ReadExpression();
+				args.Add(expr);
+				if (!this.CurToken.IsPunctuation(",") && !this.CurToken.IsPunctuation(")")) {
+					this.ThrowExpect("comma or end of argument list", this.CurToken);
+				}
+			}
+			if (!this.CurToken.IsPunctuation(")")) {
+				this.ThrowExpect("end of argument list", this.CurToken);
+			}
+
+			this.Move();
+
+			return new FunctionCallExpression { Function = func_expr, Arguments = args };
+		}
+
+
+		public TableConstructorExpression.Entry ReadTableConstructorEntry() {
+			if (this.CurToken.Type == TokenType.Identifier) {
+				Token eq = this.PeekToken;
+				if (eq.IsPunctuation("=")) {
+					// { a = ... }
+
+					StringLiteral key = new StringLiteral { Value = this.CurToken.Value };
+					this.Move();
+					this.Move(); // =
+					IExpression value = this.ReadExpression();
+					return new TableConstructorExpression.Entry { ExplicitKey = true, Key = key, Value = value };
+				} else {
+					// { a }
+					IExpression value = this.ReadExpression();
+					return new TableConstructorExpression.Entry { ExplicitKey = false, Value = value };
+					// Note - Key is null
+					// This is filled in in ReadTableConstructor
+				}
+			} else if (this.CurToken.IsPunctuation("[")) {
+				// { [expr] = ... }
+				this.Move();
+				IExpression key = this.ReadExpression();
+				if (!this.CurToken.IsPunctuation("]")) {
+					this.ThrowExpect("end of key", this.CurToken);
+				}
+
+				this.Move();
+				if (!this.CurToken.IsPunctuation("=")) {
+					this.ThrowExpect("assignment", this.CurToken);
+				}
+
+				this.Move();
+				IExpression value = this.ReadExpression();
+				return new TableConstructorExpression.Entry { ExplicitKey = true, Key = key, Value = value };
+			} else {
+				// { expr }
+				return new TableConstructorExpression.Entry { ExplicitKey = false, Value = this.ReadExpression() };
+				// Note - Key is null
+				// This is filled in in ReadTableConstructor
+			}
+		}
+
+
+		public TableConstructorExpression ReadTableConstructor() {
+			if (!this.CurToken.IsPunctuation("{")) {
+				this.ThrowExpect("table constructor", this.CurToken);
+			}
+
+			this.Move();
+
+			List<TableConstructorExpression.Entry> entries = new List<TableConstructorExpression.Entry>();
+
+			int cur_sequential_idx = 1;
+
+			if (!this.CurToken.IsPunctuation("}")) {
+				TableConstructorExpression.Entry ent = this.ReadTableConstructorEntry();
+				if (this.ParserSettings.AutofillSequentialKeysInTableConstructor && ent.Key == null) {
+					ent.Key = new NumberLiteral { Value = cur_sequential_idx };
+					cur_sequential_idx += 1;
+				}
+				entries.Add(ent);
+			}
+
+			while (this.CurToken.IsPunctuation(",") || this.CurToken.IsPunctuation(";")) {
+				this.Move();
+				if (this.CurToken.IsPunctuation("}")) {
+					break; // trailing comma
+				}
+
+				TableConstructorExpression.Entry ent = this.ReadTableConstructorEntry();
+				if (this.ParserSettings.AutofillSequentialKeysInTableConstructor && ent.Key == null) {
+					ent.Key = new NumberLiteral { Value = cur_sequential_idx };
+					cur_sequential_idx += 1;
+				}
+				entries.Add(ent);
+				if (!this.CurToken.IsPunctuation(",") && !this.CurToken.IsPunctuation(";") && !this.CurToken.IsPunctuation("}")) {
+					this.ThrowExpect("comma or end of entry list", this.CurToken);
+				}
+			}
+
+			if (!this.CurToken.IsPunctuation("}")) {
+				this.ThrowExpect("end of entry list", this.CurToken);
+			}
+
+			this.Move();
+
+			return new TableConstructorExpression { Entries = entries };
+		}
+
+
+		public FunctionDefinition ReadFunctionDefinition(bool start_from_params = false, bool self = false) {
+			if (!start_from_params) {
+				if (!this.CurToken.IsPunctuation("function")) {
+					this.ThrowExpect("function", this.CurToken);
+				}
+
+				this.Move();
+			}
+
+			if (!this.CurToken.IsPunctuation("(")) {
+				this.ThrowExpect("start of argument name list", this.CurToken);
+			}
+
+			this.Move();
+
+			bool varargs = false;
+			List<string> args = new List<string>();
+
+			if (self) {
+				args.Add("self");
+			}
+
+			if (!this.CurToken.IsPunctuation(")")) {
+				if (this.CurToken.Type != TokenType.Identifier) {
+					this.ThrowExpect("identifier", this.CurToken);
+				}
+
+				args.Add(this.CurToken.Value);
+				this.Move();
+			}
+
+			while (this.CurToken.IsPunctuation(",")) {
+				this.Move();
+				if (this.CurToken.IsPunctuation("...")) {
+					varargs = true;
+					this.Move();
+					break;
+				}
+				if (this.CurToken.Type != TokenType.Identifier) {
+					this.ThrowExpect("identifier", this.CurToken);
+				}
+
+				args.Add(this.CurToken.Value);
+				this.Move();
+			}
+
+			if (!this.CurToken.IsPunctuation(")")) {
+				this.ThrowExpect("end of argument name list", this.CurToken);
+			}
+
+			this.Move();
+
+			this.SkipSemicolons();
+
+			List<IStatement> statements = new List<IStatement>();
+			while (!this.CurToken.IsPunctuation("end") && !this.CurToken.IsEOF()) {
+				statements.Add(this.ReadStatement());
+			}
+
+			this.Move();
+
+			return new FunctionDefinition {
+				ArgumentNames = args,
+				Block = new BlockStatement { Statements = statements },
+				AcceptsVarargs = varargs,
+				ImplicitSelf = self
+			};
+		}
+
+
+		// Primary expression:
+		// - Does not depend on any expressions.
+		public IExpression ReadPrimaryExpression() {
+			if (this.CurToken.Type == TokenType.QuotedString) {
+				return this.ReadStringLiteral();
+			}
+
+			if (this.CurToken.Type == TokenType.Number) {
+				if (this.ParserSettings.EnableLuaJitLongs && this.PeekToken.IsIdentifier("LL")) {
+					return this.ReadLuaJitLongLiteral();
+				} else {
+					return this.ReadNumberLiteral();
+				}
+			}
+
+			if (this.CurToken.Type == TokenType.Punctuation) {
+				if (this.CurToken.Value == "{") {
+					return this.ReadTableConstructor();
+				}
+
+				if (this.CurToken.Value == "...") {
+					return this.ReadVarargsLiteral();
+				}
+
+				if (this.CurToken.Value == "nil") {
+					return this.ReadNilLiteral();
+				}
+
+				if (this.CurToken.Value == "true" || this.CurToken.Value == "false") {
+					return this.ReadBoolLiteral();
+				}
+				if (this.CurToken.Value == "function") {
+					return this.ReadFunctionDefinition();
+				}
+
+			} else if (this.CurToken.Type == TokenType.Identifier) {
+				return this.ReadVariable();
+			}
+
+			this.ThrowExpect("expression", this.CurToken);
+			throw new Exception("unreachable");
+		}
+
+
+		public OperatorInfo? GetBinaryOperator(Token tok) {
+			if (tok.Value == null) {
+				return null;
+			}
+
+			OperatorInfo? op = OperatorInfo.FromToken(tok);
+			if (op == null) {
+				return null;
+			}
+
+			if (!op.Value.IsBinary) {
+				this.ThrowExpect("binary operator", tok);
+			}
+
+			return op.Value;
+		}
+
+
+		// Secondary expression:
+		// - Depends on (alters the value of) *one* expression.
+		public IExpression ReadSecondaryExpression() {
+			OperatorInfo? unary_op = OperatorInfo.FromToken(this.CurToken);
+
+			if (unary_op != null && unary_op.Value.IsUnary) {
+				this.Move();
+			}
+
+			IExpression expr;
+
+			if (this.CurToken.IsPunctuation("(")) {
+				this.Move();
+				IExpression complex = this.ReadComplexExpression(this.ReadSecondaryExpression(), 0, true);
+				if (!this.CurToken.IsPunctuation(")")) {
+					this.ThrowExpect("closing parenthesis", this.CurToken);
+				}
+				this.Move();
+				expr = complex;
+				if (expr is FunctionCallExpression) {
+					((FunctionCallExpression)expr).ForceTruncateReturnValues = true;
+				}
+			} else {
+				expr = this.ReadPrimaryExpression();
+			}
+
+			while (this.CurToken.IsPunctuation(".") || this.CurToken.IsPunctuation("[")) {
+				if (expr is FunctionCallExpression) {
+					((FunctionCallExpression)expr).ForceTruncateReturnValues = false;
+				}
+
+				if (expr is StringLiteral && this.ParserSettings.MaintainSyntaxErrorCompatibility) {
+					this.Throw($"syntax error compat: can't directly index strings, use parentheses", this.CurToken);
+				}
+				expr = this.ReadTableAccess(expr);
+			}
+
+			while (this.CurToken.IsPunctuation(":")) {
+				if (expr is FunctionCallExpression) {
+					((FunctionCallExpression)expr).ForceTruncateReturnValues = false;
+				}
+
+				if (expr is StringLiteral && this.ParserSettings.MaintainSyntaxErrorCompatibility) {
+					this.Throw($"syntax error compat: can't directly index strings, use parentheses", this.CurToken);
+				}
+				IExpression self_expr = expr;
+				expr = this.ReadTableAccess(expr, allow_colon: true);
+				expr = this.ReadFunctionCall(expr, self_expr);
+			}
+
+			if (this.CurToken.IsPunctuation("(")) {
+				if (expr is FunctionCallExpression) {
+					((FunctionCallExpression)expr).ForceTruncateReturnValues = false;
+				}
+
+				if (expr is StringLiteral && this.ParserSettings.MaintainSyntaxErrorCompatibility) {
+					this.Throw($"syntax error compat: can't directly call strings, use parentheses", this.CurToken);
+				}
+				expr = this.ReadFunctionCall(expr);
+			} else if (this.CurToken.IsPunctuation("{")) {
+				if (expr is FunctionCallExpression) {
+					((FunctionCallExpression)expr).ForceTruncateReturnValues = false;
+				}
+
+				if (expr is StringLiteral && this.ParserSettings.MaintainSyntaxErrorCompatibility) {
+					this.Throw($"syntax error compat: can't directly call strings, use parentheses", this.CurToken);
+				}
+				expr = new FunctionCallExpression {
+					Function = expr,
+					Arguments = new List<IExpression> { this.ReadTableConstructor() }
+				};
+			} else if (this.CurToken.Type == TokenType.QuotedString) {
+				if (expr is FunctionCallExpression) {
+					((FunctionCallExpression)expr).ForceTruncateReturnValues = false;
+				}
+
+				if (expr is StringLiteral && this.ParserSettings.MaintainSyntaxErrorCompatibility) {
+					this.Throw($"syntax error compat: can't directly call strings, use parentheses", this.CurToken);
+				}
+				expr = new FunctionCallExpression {
+					Function = expr,
+					Arguments = new List<IExpression> { this.ReadStringLiteral() }
+				};
+			}
+
+			if (unary_op != null && unary_op.Value.IsUnary) {
+				if (expr is FunctionCallExpression) {
+					((FunctionCallExpression)expr).ForceTruncateReturnValues = false;
+				}
+
+				expr = new UnaryExpression(unary_op.Value.UnaryOpType.Value, expr);
+			}
+
+			return expr;
+		}
+
+
+		// Complex expression:
+		// - Depends on (alters the value of) *two* expressions.
+		public IExpression ReadComplexExpression(IExpression lhs, int prev_op_prec, bool in_parens, int depth = 0) {
+			OperatorInfo? lookahead = this.GetBinaryOperator(this.CurToken);
+			if (lookahead == null) {
+				return lhs;
+			}
+
+			//Console.WriteLine($"{new string(' ', depth)}RCE: lhs = {lhs} lookahead = {lookahead.Value.TokenValue} prev_op_prec = {prev_op_prec}");
+
+			if (lhs is FunctionCallExpression) {
+				((FunctionCallExpression)lhs).ForceTruncateReturnValues = false;
+				// No need to force this (and produce extra parens),
+				// because the binop truncates the return value anyway
+			}
+
+			while (lookahead.Value.Precedence >= prev_op_prec) {
+				OperatorInfo? op = lookahead;
+				this.Move();
+				IExpression rhs = this.ReadSecondaryExpression();
+				if (rhs is FunctionCallExpression) {
+					((FunctionCallExpression)rhs).ForceTruncateReturnValues = false;
+				}
+				lookahead = this.GetBinaryOperator(this.CurToken);
+				if (lookahead == null) {
+					return new BinaryExpression(op.Value.BinaryOpType.Value, lhs, rhs);
+				}
+				//Console.WriteLine($"{new string(' ', depth)}OUT rhs = {rhs} lookahead = {lookahead.Value.TokenValue} prec = {lookahead.Value.Precedence}");
+
+				while (lookahead.Value.RightAssociative ? (lookahead.Value.Precedence == op.Value.Precedence) : (lookahead.Value.Precedence > op.Value.Precedence)) {
+					rhs = this.ReadComplexExpression(rhs, lookahead.Value.Precedence, in_parens, depth + 1);
+					//Console.WriteLine($"{new string(' ', depth)}IN rhs = {rhs} lookahead = {lookahead.Value.TokenValue}");
+					lookahead = this.GetBinaryOperator(this.CurToken);
+					if (lookahead == null) {
+						return new BinaryExpression(op.Value.BinaryOpType.Value, lhs, rhs);
+					}
+				}
+
+				lhs = new BinaryExpression(op.Value.BinaryOpType.Value, lhs, rhs);
+			}
+
+			return lhs;
+		}
+
+
+		/// <summary>
+		/// Reads a single expression.
+		/// </summary>
+		/// <returns>The expression.</returns>
+		public IExpression ReadExpression() {
+			IExpression expr = this.ReadSecondaryExpression();
+			return this.ReadComplexExpression(expr, 0, false);
+		}
+
+
+		public BreakStatement ReadBreak() {
+			if (!this.CurToken.IsPunctuation("break")) {
+				this.ThrowExpect("break statement", this.CurToken);
+			}
+
+			this.Move();
+			return new BreakStatement();
+		}
+
+
+		public ReturnStatement ReadReturn() {
+			if (!this.CurToken.IsPunctuation("return")) {
+				this.ThrowExpect("return statement", this.CurToken);
+			}
+
+			this.Move();
+
+			List<IExpression> ret_vals = new List<IExpression>();
+
+			if (!this.CurToken.IsPunctuation("end")) {
+				ret_vals.Add(this.ReadExpression());
+			}
+
+			while (this.CurToken.IsPunctuation(",")) {
+				this.Move();
+				ret_vals.Add(this.ReadExpression());
+			}
+
+			return new ReturnStatement { Expressions = ret_vals };
+		}
+
+
+		public IfStatement ReadIf() {
+			if (!this.CurToken.IsPunctuation("if")) {
+				this.ThrowExpect("if statement", this.CurToken);
+			}
+
+			this.Move();
+
+			IExpression cond = this.ReadExpression();
+
+			if (!this.CurToken.IsPunctuation("then")) {
+				this.ThrowExpect("'then' keyword", this.CurToken);
+			}
+
+			this.Move();
+
+			List<IStatement> statements = new List<IStatement>();
+
+			while (!this.CurToken.IsPunctuation("else") && !this.CurToken.IsPunctuation("elseif") && !this.CurToken.IsPunctuation("end") && !this.CurToken.IsEOF()) {
+				statements.Add(this.ReadStatement());
+			}
+
+			ConditionalBlockStatement mainif_cond_block = new ConditionalBlockStatement {
+				Block = new BlockStatement { Statements = statements },
+				Condition = cond
+			};
+
+			List<ConditionalBlockStatement> elseifs = new List<ConditionalBlockStatement>();
+
+			while (this.CurToken.IsPunctuation("elseif")) {
+				this.Move();
+				IExpression elseif_cond = this.ReadExpression();
+				if (!this.CurToken.IsPunctuation("then")) {
+					this.ThrowExpect("'then' keyword", this.CurToken);
+				}
+
+				this.Move();
+				List<IStatement> elseif_statements = new List<IStatement>();
+				while (!this.CurToken.IsPunctuation("else") && !this.CurToken.IsPunctuation("elseif") && !this.CurToken.IsPunctuation("end") && !this.CurToken.IsEOF()) {
+					elseif_statements.Add(this.ReadStatement());
+				}
+
+				elseifs.Add(new ConditionalBlockStatement {
+					Block = new BlockStatement { Statements = elseif_statements },
+					Condition = elseif_cond
+				});
+			}
+
+			BlockStatement else_block = null;
+
+			if (this.CurToken.IsPunctuation("else")) {
+				this.Move();
+				List<IStatement> else_statements = new List<IStatement>();
+				while (!this.CurToken.IsPunctuation("end") && !this.CurToken.IsEOF()) {
+					else_statements.Add(this.ReadStatement());
+				}
+
+				else_block = new BlockStatement { Statements = else_statements };
+			}
+
+			if (!this.CurToken.IsPunctuation("end")) {
+				this.ThrowExpect("'end' keyword", this.CurToken);
+			}
+
+			this.Move();
+
+			return new IfStatement {
+				MainIf = mainif_cond_block,
+				ElseIfs = elseifs,
+				Else = else_block
+			};
+		}
+
+
+		public void SkipSemicolons() {
+			while (this.CurToken.IsPunctuation(";")) {
+				this.Move();
+			}
+		}
+
+
+		public WhileStatement ReadWhile() {
+			if (!this.CurToken.IsPunctuation("while")) {
+				this.ThrowExpect("while statement", this.CurToken);
+			}
+
+			this.Move();
+			IExpression cond = this.ReadExpression();
+
+			if (!this.CurToken.IsPunctuation("do")) {
+				this.ThrowExpect("'do' keyword", this.CurToken);
+			}
+
+			this.Move();
+
+			this.SkipSemicolons();
+
+			List<IStatement> statements = new List<IStatement>();
+
+			while (!this.CurToken.IsPunctuation("end") && !this.CurToken.IsEOF()) {
+				statements.Add(this.ReadStatement());
+			}
+			this.Move();
+
+			return new WhileStatement {
+				Condition = cond,
+				Block = new BlockStatement { Statements = statements }
+			};
+		}
+
+
+		public AssignmentStatement TryReadFullAssignment(bool certain_assign, IExpression start_expr, Token expr_token) {
+			// certain_assign should be set to true if we know that
+			// what we have is definitely an assignment
+			// that allows us to handle implicit nil assignments (local
+			// declarations without a value) as an Assignment node
+
+			if (certain_assign || (this.CurToken.IsPunctuation("=") || this.CurToken.IsPunctuation(","))) {
+				if (!(start_expr is IAssignable)) {
+					this.ThrowExpect("assignable expression", expr_token);
+				}
+
+				List<IAssignable> assign_exprs = new List<IAssignable> { start_expr as IAssignable };
+
+				while (this.CurToken.IsPunctuation(",")) {
+					this.Move();
+					start_expr = this.ReadExpression();
+					if (!(start_expr is IAssignable)) {
+						this.ThrowExpect("assignable expression", expr_token);
+					}
+
+					assign_exprs.Add(start_expr as IAssignable);
+				}
+
+				if (certain_assign && !this.CurToken.IsPunctuation("=")) {
+					// implicit nil assignment/local declaration
+
+					AssignmentStatement local_decl = new AssignmentStatement {
+						IsLocal = true,
+						Targets = assign_exprs
+					};
+
+					if (this.ParserSettings.AutofillValuesInLocalDeclaration) {
+						// Match Values with NilLiterals
+						for (int i = 0; i < assign_exprs.Count; i++) {
+							local_decl.Values.Add(NilLiteral.Instance);
+						}
+					}
+
+					return local_decl;
+				}
+
+				return this.ReadAssignment(assign_exprs);
+			}
+
+			return null;
+		}
+
+
+		public AssignmentStatement ReadAssignment(List<IAssignable> assignable_exprs, bool local = false) {
+			if (!this.CurToken.IsPunctuation("=")) {
+				this.ThrowExpect("assignment", this.CurToken);
+			}
+
+			this.Move();
+			List<IExpression> value_exprs = new List<IExpression> { this.ReadExpression() };
+
+			while (this.CurToken.IsPunctuation(",")) {
+				this.Move();
+				value_exprs.Add(this.ReadExpression());
+			}
+
+			return new AssignmentStatement {
+				IsLocal = local,
+				Targets = assignable_exprs,
+				Values = value_exprs,
+			};
+		}
+
+
+		public AssignmentStatement ReadNamedFunctionDefinition() {
+			if (!this.CurToken.IsPunctuation("function")) {
+				this.ThrowExpect("function", this.CurToken);
+			}
+
+			this.Move();
+			if (this.CurToken.Type != TokenType.Identifier) {
+				this.ThrowExpect("identifier", this.CurToken);
+			}
+
+			IAssignable expr = new VariableExpression { Name = this.CurToken.Value };
+			this.Move();
+			while (this.CurToken.IsPunctuation(".")) {
+				this.Move();
+				if (this.CurToken.Type != TokenType.Identifier) {
+					this.ThrowExpect("identifier", this.CurToken);
+				}
+
+				expr = new TableAccessExpression {
+					Table = expr as IExpression,
+					Index = new StringLiteral { Value = this.CurToken.Value }
+				};
+				this.Move();
+			}
+			bool is_method_def = false;
+			if (this.CurToken.IsPunctuation(":")) {
+				is_method_def = true;
+				this.Move();
+				if (this.CurToken.Type != TokenType.Identifier) {
+					this.ThrowExpect("identifier", this.CurToken);
+				}
+
+				expr = new TableAccessExpression {
+					Table = expr as IExpression,
+					Index = new StringLiteral { Value = this.CurToken.Value }
+				};
+				this.Move();
+			}
+			FunctionDefinition func_def = this.ReadFunctionDefinition(start_from_params: true, self: is_method_def);
+			return new AssignmentStatement {
+				Targets = new List<IAssignable> { expr },
+				Values = new List<IExpression> { func_def }
+			};
+		}
+
+
+		public RepeatStatement ReadRepeat() {
+			if (!this.CurToken.IsPunctuation("repeat")) {
+				this.ThrowExpect("repeat statement", this.CurToken);
+			}
+
+			this.Move();
+			this.SkipSemicolons();
+			List<IStatement> statements = new List<IStatement>();
+			while (!this.CurToken.IsPunctuation("until") && !this.CurToken.IsEOF()) {
+				statements.Add(this.ReadStatement());
+			}
+
+			if (!this.CurToken.IsPunctuation("until")) {
+				this.ThrowExpect("'until' keyword", this.CurToken);
+			}
+
+			this.Move();
+
+			IExpression cond = this.ReadExpression();
+
+			return new RepeatStatement {
+				Condition = cond,
+				Block = new BlockStatement { Statements = statements }
+			};
+		}
+
+
+		public BlockStatement ReadBlock(bool alone = false) {
+			if (!this.CurToken.IsPunctuation("do")) {
+				this.ThrowExpect("block", this.CurToken);
+			}
+
+			this.Move();
+			this.SkipSemicolons();
+
+			List<IStatement> statements = new List<IStatement>();
+			while (!this.CurToken.IsPunctuation("end") && !this.CurToken.IsEOF()) {
+				statements.Add(this.ReadStatement());
+			}
+
+			this.Move();
+
+			return new BlockStatement { Statements = statements };
+		}
+
+
+		public GenericForStatement ReadGenericFor() {
+			if (this.CurToken.Type != TokenType.Identifier) {
+				this.ThrowExpect("identifier", this.CurToken);
+			}
+
+			List<string> var_names = new List<string> { this.CurToken.Value };
+			this.Move();
+
+			while (this.CurToken.IsPunctuation(",")) {
+				this.Move();
+				if (this.CurToken.Type != TokenType.Identifier) {
+					this.ThrowExpect("identifier", this.CurToken);
+				}
+
+				var_names.Add(this.CurToken.Value);
+				this.Move();
+			}
+
+			if (!this.CurToken.IsPunctuation("in")) {
+				this.ThrowExpect("'in' keyword", this.CurToken);
+			}
+
+			this.Move();
+
+			IExpression iterator = this.ReadExpression();
+			BlockStatement block = this.ReadBlock();
+
+			return new GenericForStatement {
+				VariableNames = var_names,
+				Iterator = iterator,
+				Block = block
+			};
+		}
+
+
+		public NumericForStatement ReadNumericFor() {
+			if (this.CurToken.Type != TokenType.Identifier) {
+				this.ThrowExpect("identifier", this.CurToken);
+			}
+
+			string var_name = this.CurToken.Value;
+			this.Move();
+
+			if (!this.CurToken.IsPunctuation("=")) {
+				this.ThrowExpect("assignment", this.CurToken);
+			}
+
+			this.Move();
+
+			IExpression start_pos = this.ReadExpression();
+			if (!this.CurToken.IsPunctuation(",")) {
+				this.ThrowExpect("end point expression", this.CurToken);
+			}
+
+			this.Move();
+			IExpression end_pos = this.ReadExpression();
+
+			IExpression step = null;
+			if (this.CurToken.IsPunctuation(",")) {
+				this.Move();
+				step = this.ReadExpression();
+			}
+
+			if (step == null && this.ParserSettings.AutofillNumericForStep) {
+				step = new NumberLiteral { Value = 1 };
+			}
+
+			BlockStatement block = this.ReadBlock();
+
+			return new NumericForStatement {
+				VariableName = var_name,
+				StartPoint = start_pos,
+				EndPoint = end_pos,
+				Step = step,
+				Block = block
+			};
+		}
+
+
+		public ForStatement ReadFor() {
+			if (!this.CurToken.IsPunctuation("for")) {
+				this.ThrowExpect("for statement", this.CurToken);
+			}
+
+			this.Move();
+
+			Token peek = this.PeekToken;
+			if (peek.IsPunctuation(",") || peek.IsPunctuation("in")) {
+				return this.ReadGenericFor();
+			} else {
+				return this.ReadNumericFor();
+			}
+		}
+
+
+		public IStatement ReadPrimaryStatement() {
+			if (this.CurToken.IsPunctuation("break")) {
+				return this.ReadBreak();
+			}
+
+			if (this.CurToken.IsPunctuation("return")) {
+				return this.ReadReturn();
+			}
+
+			if (this.CurToken.IsPunctuation("if")) {
+				return this.ReadIf();
+			}
+
+			if (this.CurToken.IsPunctuation("while")) {
+				return this.ReadWhile();
+			}
+
+			if (this.CurToken.IsPunctuation("function")) {
+				return this.ReadNamedFunctionDefinition();
+			}
+
+			if (this.CurToken.IsPunctuation("repeat")) {
+				return this.ReadRepeat();
+			}
+
+			if (this.CurToken.IsPunctuation("for")) {
+				return this.ReadFor();
+			}
+
+			if (this.CurToken.IsPunctuation("do")) {
+				return this.ReadBlock(alone: true);
+			}
+
+			if (this.CurToken.IsPunctuation("local")) {
+				this.Move();
+				if (this.CurToken.IsPunctuation("function")) {
+					AssignmentStatement local_assign = this.ReadNamedFunctionDefinition();
+					local_assign.IsLocal = true;
+					return local_assign;
+				} else {
+					Token local_expr_token = this.CurToken;
+					IExpression local_expr = this.ReadExpression();
+					AssignmentStatement local_assign = this.TryReadFullAssignment(true, local_expr, local_expr_token);
+					if (local_assign == null) {
+						this.ThrowExpect("assignment statement", this.CurToken);
+					}
+
+					local_assign.IsLocal = true;
+					return local_assign;
+				}
+			}
+
+			Token expr_token = this.CurToken;
+			IExpression expr = this.ReadExpression();
+			AssignmentStatement assign = this.TryReadFullAssignment(false, expr, expr_token);
+			if (assign != null) {
+				return assign;
+			}
+
+			if (expr is FunctionCallExpression) {
+				return expr as FunctionCallExpression;
+			}
+
+			this.ThrowExpect("statement", expr_token);
+			throw new Exception("unreachable");
+		}
+
+
+		/// <summary>
+		/// Reads a single statement.
+		/// </summary>
+		/// <returns>The statement.</returns>
+		public IStatement ReadStatement() {
+			IStatement stat = this.ReadPrimaryStatement();
+			this.SkipSemicolons();
+			return stat;
+		}
+
+
+		/// <summary>
+		/// Reads a list of statements.
+		/// </summary>
+		/// <returns>`Block` node (`TopLevel` = `true`).</returns>
+		public BlockStatement Read() {
+			List<IStatement> statements = new List<IStatement>();
+
+			while (!this.CurToken.IsEOF()) {
+				statements.Add(this.ReadStatement());
+			}
+
+			return new BlockStatement { Statements = statements, TopLevel = true };
+		}
+
+	}
+
 }

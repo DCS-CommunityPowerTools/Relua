@@ -1,10 +1,8 @@
-﻿using Relua;
-using Relua.Deserialization.Literals;
-using System;
+﻿using Relua.Deserialization.Literals;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+
+
+
 
 namespace Relua.Deserialization.Expressions {
 
@@ -35,7 +33,8 @@ namespace Relua.Deserialization.Expressions {
 	/// }
 	/// ```
 	/// </summary>
-	public class TableConstructor : Node, IExpression {
+	public class TableConstructorExpression : Node, IExpression {
+
 		/// <summary>
 		/// Table constructor entry. If `ExplicitKey` is `true`, then the key
 		/// for this `Entry` will always be emitted while writing the
@@ -48,84 +47,100 @@ namespace Relua.Deserialization.Expressions {
 		/// ```
 		/// </summary>
 		public class Entry : Node {
+
 			public IExpression Key;
 			public IExpression Value;
 			public bool ExplicitKey;
 
+
 			public void WriteIdentifierStyle(IndentAwareTextWriter writer, string index) {
 				writer.Write(index);
 				writer.Write(" = ");
-				Value.Write(writer);
+				this.Value.Write(writer);
 			}
+
 
 			public void WriteGenericStyle(IndentAwareTextWriter writer) {
 				writer.Write("[");
-				Key.Write(writer);
+				this.Key.Write(writer);
 				writer.Write("]");
 				writer.Write(" = ");
-				Value.Write(writer);
+				this.Value.Write(writer);
 			}
+
 
 			public override void Write(IndentAwareTextWriter writer) {
-				Write(writer, false);
+				this.Write(writer, false);
 			}
 
+
 			public void Write(IndentAwareTextWriter writer, bool skip_key) {
-				if (skip_key || Key == null) {
-					Value.Write(writer);
+				if (skip_key || this.Key == null) {
+					this.Value.Write(writer);
 					return;
 				}
 
-				if (Key is StringLiteral && ((StringLiteral)Key).Value.IsIdentifier()) {
-					WriteIdentifierStyle(writer, ((StringLiteral)Key).Value);
+				if (this.Key is StringLiteral && ((StringLiteral)this.Key).Value.IsIdentifier()) {
+					this.WriteIdentifierStyle(writer, ((StringLiteral)this.Key).Value);
 				} else {
-					WriteGenericStyle(writer);
+					this.WriteGenericStyle(writer);
 				}
 			}
 
-			public override void Accept(IVisitor visitor) => visitor.Visit(this);
+
+			public override void Accept(IVisitor visitor)
+				=> visitor.Visit(this);
+
 		}
+
+
+
 
 		public List<Entry> Entries = new List<Entry>();
 
+
 		public override void Write(IndentAwareTextWriter writer) {
-			if (Entries.Count == 0) {
+			if (this.Entries.Count == 0) {
 				writer.Write("{}");
 				return;
 			}
 
-			if (Entries.Count == 1) {
+			if (this.Entries.Count == 1) {
 				writer.Write("{ ");
-				var ent = Entries[0];
+				Entry ent = this.Entries[0];
 				ent.Write(writer, skip_key: ent.Key is NumberLiteral && ((NumberLiteral)ent.Key).Value == 1 && !ent.ExplicitKey);
 				writer.Write(" }");
 				return;
 			}
 
-			var seq_idx = 1;
+			int seq_idx = 1;
 
 			writer.Write("{");
 			writer.IncreaseIndent();
-			for (var i = 0; i < Entries.Count; i++) {
+			for (int i = 0; i < this.Entries.Count; i++) {
 				writer.WriteLine();
 
-				var ent = Entries[i];
+				Entry ent = this.Entries[i];
 
-				var is_sequential = false;
+				bool is_sequential = false;
 				if (ent.Key is NumberLiteral && ((NumberLiteral)ent.Key).Value == seq_idx && !ent.ExplicitKey) {
 					is_sequential = true;
 					seq_idx += 1;
 				}
 
-				Entries[i].Write(writer, skip_key: is_sequential);
-				if (i < Entries.Count - 1) writer.Write(",");
+				this.Entries[i].Write(writer, skip_key: is_sequential);
+				if (i < this.Entries.Count - 1) {
+					writer.Write(",");
+				}
 			}
 			writer.DecreaseIndent();
 			writer.WriteLine();
 			writer.Write("}");
 		}
 
-		public override void Accept(IVisitor visitor) => visitor.Visit(this);
+
+		public override void Accept(IVisitor visitor)
+			=> visitor.Visit(this);
 	}
 
 }

@@ -1,11 +1,9 @@
-﻿using Relua.Deserialization.Exceptions;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using Relua.Exceptions;
 
-namespace Relua.Exceptions {
+
+
+
+namespace Relua.Deserialization.Exceptions {
 
 	/// <summary>
 	/// Exception thrown when the tokenizer runs into invalid syntax.
@@ -14,14 +12,14 @@ namespace Relua.Exceptions {
 
 		public TokenizerException(string msg, int line, int @char)
 						: base($"Failed tokenizing: {msg} [{line}:{@char}]") {
-			Line = line;
-			Column = @char;
+			this.Line = line;
+			this.Column = @char;
 		}
 
 		public TokenizerException(string msg, Tokenizer.Region region)
 						: base($"Failed tokenizing: {msg} [{region.BoundsToString()}]") {
-			Line = region.StartLine;
-			Column = region.StartColumn;
+			this.Line = region.StartLine;
+			this.Column = region.StartColumn;
 		}
 
 	}

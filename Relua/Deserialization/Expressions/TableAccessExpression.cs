@@ -1,10 +1,8 @@
-﻿using Relua;
-using Relua.Deserialization.Literals;
-using System;
-using System.Collections.Generic;
-using System.Linq;
+﻿using Relua.Deserialization.Literals;
 using System.Text;
-using System.Threading.Tasks;
+
+
+
 
 namespace Relua.Deserialization.Expressions {
 
@@ -23,62 +21,95 @@ namespace Relua.Deserialization.Expressions {
 	/// ```
 	/// </summary>
 	public class TableAccessExpression : Node, IExpression, IAssignable {
+
 		public IExpression Table;
 		public IExpression Index;
 
+
 		private bool GetIdentifierAccessChain(StringBuilder s, bool is_method_access_top_level = false) {
-			if (Table is TableAccessExpression) {
-				if (!((TableAccessExpression)Table).GetIdentifierAccessChain(s)) return false;
-			} else if (Table is VariableExpression) {
-				s.Append(((VariableExpression)Table).Name);
-			} else return false;
+			if (this.Table is TableAccessExpression) {
+				if (!((TableAccessExpression)this.Table).GetIdentifierAccessChain(s)) {
+					return false;
+				}
+			} else if (this.Table is VariableExpression) {
+				s.Append(((VariableExpression)this.Table).Name);
+			} else {
+				return false;
+			}
 
 			if (is_method_access_top_level) {
 				s.Append(":");
-			} else s.Append(".");
+			} else {
+				s.Append(".");
+			}
 
-			if (Index is StringLiteral) {
-				var lit = (StringLiteral)Index;
-				if (!lit.Value.IsIdentifier()) return false;
+			if (this.Index is StringLiteral) {
+				StringLiteral lit = (StringLiteral)this.Index;
+				if (!lit.Value.IsIdentifier()) {
+					return false;
+				}
 
 				s.Append(lit.Value);
-			} else return false;
+			} else {
+				return false;
+			}
 
 			return true;
 		}
 
+
 		public string GetIdentifierAccessChain(bool is_method_access) {
-			var s = new StringBuilder();
-			if (!GetIdentifierAccessChain(s, is_method_access)) return null;
+			StringBuilder s = new StringBuilder();
+			if (!this.GetIdentifierAccessChain(s, is_method_access)) {
+				return null;
+			}
+
 			return s.ToString();
 		}
 
+
 		public void WriteDotStyle(IndentAwareTextWriter writer, string index) {
-			if (Table is StringLiteral) writer.Write("(");
-			Table.Write(writer);
-			if (Table is StringLiteral) writer.Write(")");
+			if (this.Table is StringLiteral) {
+				writer.Write("(");
+			}
+
+			this.Table.Write(writer);
+			if (this.Table is StringLiteral) {
+				writer.Write(")");
+			}
+
 			writer.Write(".");
 			writer.Write(index);
 		}
 
+
 		public void WriteGenericStyle(IndentAwareTextWriter writer) {
-			if (Table is StringLiteral) writer.Write("(");
-			Table.Write(writer);
-			if (Table is StringLiteral) writer.Write(")");
+			if (this.Table is StringLiteral) {
+				writer.Write("(");
+			}
+
+			this.Table.Write(writer);
+			if (this.Table is StringLiteral) {
+				writer.Write(")");
+			}
+
 			writer.Write("[");
-			Index.Write(writer);
+			this.Index.Write(writer);
 			writer.Write("]");
 		}
 
+
 		public override void Write(IndentAwareTextWriter writer) {
-			if (Index is StringLiteral && ((StringLiteral)Index).Value.IsIdentifier()) {
-				WriteDotStyle(writer, ((StringLiteral)Index).Value);
+			if (this.Index is StringLiteral && ((StringLiteral)this.Index).Value.IsIdentifier()) {
+				this.WriteDotStyle(writer, ((StringLiteral)this.Index).Value);
 			} else {
-				WriteGenericStyle(writer);
+				this.WriteGenericStyle(writer);
 			}
 		}
 
-		public override void Accept(IVisitor visitor) => visitor.Visit(this);
+
+		public override void Accept(IVisitor visitor)
+			=> visitor.Visit(this);
 	}
 
 }

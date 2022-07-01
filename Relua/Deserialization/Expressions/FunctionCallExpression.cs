@@ -1,11 +1,9 @@
-﻿using Relua;
-using Relua.Deserialization.Definitions;
+﻿using Relua.Deserialization.Definitions;
 using Relua.Deserialization.Literals;
-using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+
+
+
 
 namespace Relua.Deserialization.Expressions {
 
@@ -39,52 +37,83 @@ namespace Relua.Deserialization.Expressions {
 	/// do_smth_with_table{shorthand = "syntax"}
 	/// obj:method("Hello!")
 	/// </summary>
-	public class FunctionCall : Node, IExpression, IStatement {
+	public class FunctionCallExpression : Node, IExpression, IStatement {
+
 		public IExpression Function;
 		public List<IExpression> Arguments = new List<IExpression>();
 		public bool ForceTruncateReturnValues = false;
 
+
 		public void WriteMethodStyle(IndentAwareTextWriter writer, IExpression obj, string method_name) {
-			if (obj is FunctionDefinition) writer.Write("(");
+			if (obj is FunctionDefinition) {
+				writer.Write("(");
+			}
+
 			obj.Write(writer);
-			if (obj is FunctionDefinition) writer.Write(")");
+			if (obj is FunctionDefinition) {
+				writer.Write(")");
+			}
+
 			writer.Write(":");
 			writer.Write(method_name);
 			writer.Write("(");
-			for (var i = 1; i < Arguments.Count; i++) {
-				Arguments[i].Write(writer);
-				if (i < Arguments.Count - 1) writer.Write(", ");
+			for (int i = 1; i < this.Arguments.Count; i++) {
+				this.Arguments[i].Write(writer);
+				if (i < this.Arguments.Count - 1) {
+					writer.Write(", ");
+				}
 			}
 			writer.Write(")");
 		}
+
 
 		public void WriteGenericStyle(IndentAwareTextWriter writer) {
-			if (Function is FunctionDefinition) writer.Write("(");
-			Function.Write(writer);
-			if (Function is FunctionDefinition) writer.Write(")");
+			if (this.Function is FunctionDefinition) {
+				writer.Write("(");
+			}
+
+			this.Function.Write(writer);
+			if (this.Function is FunctionDefinition) {
+				writer.Write(")");
+			}
+
 			writer.Write("(");
-			for (var i = 0; i < Arguments.Count; i++) {
-				Arguments[i].Write(writer);
-				if (i < Arguments.Count - 1) writer.Write(", ");
+			for (int i = 0; i < this.Arguments.Count; i++) {
+				this.Arguments[i].Write(writer);
+				if (i < this.Arguments.Count - 1) {
+					writer.Write(", ");
+				}
 			}
 			writer.Write(")");
 		}
 
+
 		public override void Write(IndentAwareTextWriter writer) {
-			if (ForceTruncateReturnValues) writer.Write("(");
+			if (this.ForceTruncateReturnValues) {
+				writer.Write("(");
+			}
 
-			if (Function is TableAccessExpression && Arguments.Count > 0) {
-				var tf = (TableAccessExpression)Function;
+			if (this.Function is TableAccessExpression && this.Arguments.Count > 0) {
+				TableAccessExpression tf = (TableAccessExpression)this.Function;
 
-				if (tf.Table == Arguments[0] && tf.Index is StringLiteral && ((StringLiteral)tf.Index).Value.IsIdentifier()) {
-					WriteMethodStyle(writer, tf.Table, ((StringLiteral)tf.Index).Value);
-				} else WriteGenericStyle(writer);
-			} else WriteGenericStyle(writer);
+				if (tf.Table == this.Arguments[0] && tf.Index is StringLiteral && ((StringLiteral)tf.Index).Value.IsIdentifier()) {
+					this.WriteMethodStyle(writer, tf.Table, ((StringLiteral)tf.Index).Value);
+				} else {
+					this.WriteGenericStyle(writer);
+				}
+			} else {
+				this.WriteGenericStyle(writer);
+			}
 
-			if (ForceTruncateReturnValues) writer.Write(")");
+			if (this.ForceTruncateReturnValues) {
+				writer.Write(")");
+			}
 		}
 
-		public override void Accept(IVisitor visitor) => visitor.Visit(this);
+
+		public override void Accept(IVisitor visitor)
+			=> visitor.Visit(this);
+
 	}
 
 }

@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Relua.Deserialization.Expressions {
+﻿namespace Relua.Deserialization.Expressions {
 
 	/// <summary>
 	/// Variable expression.
@@ -19,7 +13,7 @@ namespace Relua.Deserialization.Expressions {
 
 
 		public override void Write(IndentAwareTextWriter writer) {
-			writer.Write(Name);
+			writer.Write(this.Name);
 		}
 
 

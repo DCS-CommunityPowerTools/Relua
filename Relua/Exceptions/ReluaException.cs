@@ -1,5 +1,10 @@
 ﻿using System;
-namespace Relua.Deserialization.Exceptions {
+
+
+
+
+namespace Relua.Exceptions {
+
 	/// <summary>
 	/// Base class for Relua exceptions. By catching this type, you can
 	/// catch both types of exceptions (while tokenizing and while parsing).
@@ -10,4 +15,5 @@ namespace Relua.Deserialization.Exceptions {
 
 		protected ReluaException(string msg) : base(msg) { }
 	}
+
 }

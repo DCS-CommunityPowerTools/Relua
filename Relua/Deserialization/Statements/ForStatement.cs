@@ -1,16 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Relua.Deserialization.Statements {
+﻿namespace Relua.Deserialization.Statements {
 
 	/// <summary>
 	/// Base class for for statements.
 	/// </summary>
-	public abstract class For : Node, IStatement {
-		public Block Block;
+	public abstract class ForStatement : Node, IStatement {
+
+		public BlockStatement Block;
+
 	}
 
 }

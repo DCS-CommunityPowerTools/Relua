@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Relua.Deserialization.Expressions {
+﻿namespace Relua.Deserialization.Expressions {
 
 	/// <summary>
 	/// Unary operation expression.
@@ -14,7 +8,7 @@ namespace Relua.Deserialization.Expressions {
 	/// -value
 	/// #table
 	/// </summary>
-	public class UnaryOp : Node, IExpression {
+	public class UnaryExpression : Node, IExpression {
 
 		public enum OpType {
 			Negate,
@@ -27,12 +21,12 @@ namespace Relua.Deserialization.Expressions {
 		public IExpression Expression;
 
 
-		public UnaryOp() { }
+		public UnaryExpression() { }
 
 
-		public UnaryOp(OpType type, IExpression expr) {
-			Type = type;
-			Expression = expr;
+		public UnaryExpression(OpType type, IExpression expr) {
+			this.Type = type;
+			this.Expression = expr;
 		}
 
 
@@ -47,8 +41,8 @@ namespace Relua.Deserialization.Expressions {
 
 		public override void Write(IndentAwareTextWriter writer) {
 			writer.Write("(");
-			WriteUnaryOp(Type, writer);
-			(Expression as Node).Write(writer);
+			WriteUnaryOp(this.Type, writer);
+			(this.Expression as Node).Write(writer);
 			writer.Write(")");
 		}
 

@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Relua.Deserialization.Literals {
+﻿namespace Relua.Deserialization.Literals {
 
 	/// <summary>
 	/// Varargs literal expression. Please note that in the case of

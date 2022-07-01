@@ -1,8 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Collections.Generic;
+
+
+
 
 namespace Relua.Deserialization.Statements {
 
@@ -17,32 +16,39 @@ namespace Relua.Deserialization.Statements {
 	///     print("abc")
 	/// end
 	/// </summary>
-	public class Block : Node, IStatement {
+	public class BlockStatement : Node, IStatement {
+
 		public List<IStatement> Statements = new List<IStatement>();
 		public bool TopLevel;
 
-		public bool IsEmpty => Statements.Count == 0;
 
-		public override void Write(IndentAwareTextWriter writer) {
-			Write(writer, true);
-		}
+
+
+		public bool IsEmpty => this.Statements.Count == 0;
+
+
+
 
 		public void Write(IndentAwareTextWriter writer, bool alone) {
-			if (TopLevel && alone) alone = false;
+			if (this.TopLevel && alone) {
+				alone = false;
+			}
 
 			if (alone) {
 				writer.Write("do");
 				writer.IncreaseIndent();
 				writer.WriteLine();
 			}
-			for (var i = 0; i < Statements.Count; i++) {
-				var stat = Statements[i];
+			for (int i = 0; i < this.Statements.Count; i++) {
+				IStatement stat = this.Statements[i];
 
 				stat.Write(writer);
 				//if (writer.ForceOneLine && stat.AmbiguousTermination && i != Statements.Count - 1) {
 				//    writer.Write(";");
 				//}
-				if (i < Statements.Count - 1) writer.WriteLine();
+				if (i < this.Statements.Count - 1) {
+					writer.WriteLine();
+				}
 			}
 			if (alone) {
 				writer.DecreaseIndent();
@@ -51,7 +57,16 @@ namespace Relua.Deserialization.Statements {
 			}
 		}
 
-		public override void Accept(IVisitor visitor) => visitor.Visit(this);
+
+		public override void Write(IndentAwareTextWriter writer)
+			=> this.Write(writer, true);
+
+
+
+
+		public override void Accept(IVisitor visitor)
+			=> visitor.Visit(this);
+
 	}
 
 }

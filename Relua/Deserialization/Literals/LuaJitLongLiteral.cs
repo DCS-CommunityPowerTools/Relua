@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Relua.Deserialization.Literals {
+﻿namespace Relua.Deserialization.Literals {
 
 	/// <summary>
 	/// Long literal expression (LuaJIT style). If `HexFormat` is true, the
@@ -18,18 +12,26 @@ namespace Relua.Deserialization.Literals {
 	/// ```
 	/// </summary>
 	public class LuaJitLongLiteral : Node, IExpression {
+
 		public long Value;
 		public bool HexFormat = false;
 
+
 		public override void Write(IndentAwareTextWriter writer) {
-			if (HexFormat) {
+			if (this.HexFormat) {
 				writer.Write("0x");
-				writer.Write(Value.ToString("X4"));
-			} else writer.Write(Value);
+				writer.Write(this.Value.ToString("X4"));
+			} else {
+				writer.Write(this.Value);
+			}
+
 			writer.Write("LL");
 		}
 
-		public override void Accept(IVisitor visitor) => visitor.Visit(this);
+
+		public override void Accept(IVisitor visitor)
+			=> visitor.Visit(this);
+
 	}
 
 }

@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Relua.Deserialization.Expressions {
+﻿namespace Relua.Deserialization.Expressions {
 
 	/// <summary>
 	/// Binary operation expression. Please note that the parser uses precedence
@@ -32,7 +26,8 @@ namespace Relua.Deserialization.Expressions {
 	/// a or b
 	/// ```
 	/// </summary>
-	public class BinaryOp : Node, IExpression {
+	public class BinaryExpression : Node, IExpression {
+
 		public enum OpType {
 			Add,
 			Subtract,
@@ -50,6 +45,7 @@ namespace Relua.Deserialization.Expressions {
 			And,
 			Or
 		}
+
 
 		public static void WriteBinaryOp(OpType type, IndentAwareTextWriter writer) {
 			switch (type) {
@@ -71,29 +67,35 @@ namespace Relua.Deserialization.Expressions {
 			}
 		}
 
-		public BinaryOp() { }
 
-		public BinaryOp(OpType type, IExpression left, IExpression right) {
-			Type = type;
-			Left = left;
-			Right = right;
+		public BinaryExpression() { }
+
+		public BinaryExpression(OpType type, IExpression left, IExpression right) {
+			this.Type = type;
+			this.Left = left;
+			this.Right = right;
 		}
+
 
 		public OpType Type;
 		public IExpression Left;
 		public IExpression Right;
 
+
 		public override void Write(IndentAwareTextWriter writer) {
 			writer.Write("(");
-			(Left as Node).Write(writer);
+			(this.Left as Node).Write(writer);
 			writer.Write(" ");
-			WriteBinaryOp(Type, writer);
+			WriteBinaryOp(this.Type, writer);
 			writer.Write(" ");
-			(Right as Node).Write(writer);
+			(this.Right as Node).Write(writer);
 			writer.Write(")");
 		}
 
-		public override void Accept(IVisitor visitor) => visitor.Visit(this);
+
+		public override void Accept(IVisitor visitor)
+			=> visitor.Visit(this);
+
 	}
 
 }

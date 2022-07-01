@@ -1,9 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
+﻿using System.IO;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace Relua.Deserialization {
 
@@ -17,16 +13,16 @@ namespace Relua.Deserialization {
 
 
 		public override string ToString() {
-			return ToString(false);
+			return this.ToString(false);
 		}
 
 
 		public virtual string ToString(bool one_line) {
-			var s = new StringBuilder();
-			var sw = new StringWriter(s);
-			var iw = new IndentAwareTextWriter(sw);
+			StringBuilder s = new StringBuilder();
+			StringWriter sw = new StringWriter(s);
+			IndentAwareTextWriter iw = new IndentAwareTextWriter(sw);
 			iw.ForceOneLine = one_line;
-			Write(iw);
+			this.Write(iw);
 			return s.ToString();
 		}
 

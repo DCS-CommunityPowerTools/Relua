@@ -1,9 +1,8 @@
 ﻿using Relua.Deserialization.Statements;
-using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+
+
+
 
 namespace Relua.Deserialization.Definitions {
 
@@ -41,46 +40,62 @@ namespace Relua.Deserialization.Definitions {
 	/// ```
 	/// </summary>
 	public class FunctionDefinition : Node, IExpression, IStatement {
+
 		public List<string> ArgumentNames = new List<string>();
-		public Block Block;
+		public BlockStatement Block;
 		public bool AcceptsVarargs = false;
 		public bool ImplicitSelf = false;
 
-		public override void Write(IndentAwareTextWriter writer) {
-			Write(writer, false);
-		}
 
 		public void Write(IndentAwareTextWriter writer, bool from_named) {
-			if (!from_named) writer.Write("function");
+			if (!from_named) {
+				writer.Write("function");
+			}
+
 			writer.Write("(");
 
-			var arg_start_idx = 0;
+			int arg_start_idx = 0;
 
-			if (ImplicitSelf && from_named) arg_start_idx += 1;
+			if (this.ImplicitSelf && from_named) {
+				arg_start_idx += 1;
+			}
 			// Skips the self for method defs
 
-			for (var i = arg_start_idx; i < ArgumentNames.Count; i++) {
-				var arg = ArgumentNames[i];
+			for (int i = arg_start_idx; i < this.ArgumentNames.Count; i++) {
+				string arg = this.ArgumentNames[i];
 				writer.Write(arg);
-				if (i < ArgumentNames.Count - 1) writer.Write(", ");
+				if (i < this.ArgumentNames.Count - 1) {
+					writer.Write(", ");
+				}
 			}
-			if (AcceptsVarargs) {
-				if (ArgumentNames.Count > 0) writer.Write(", ");
+			if (this.AcceptsVarargs) {
+				if (this.ArgumentNames.Count > 0) {
+					writer.Write(", ");
+				}
+
 				writer.Write("...");
 			}
 			writer.Write(")");
-			if (Block.IsEmpty) writer.Write(" ");
-			else {
+			if (this.Block.IsEmpty) {
+				writer.Write(" ");
+			} else {
 				writer.IncreaseIndent();
 				writer.WriteLine();
-				Block.Write(writer, false);
+				this.Block.Write(writer, false);
 				writer.DecreaseIndent();
 				writer.WriteLine();
 			}
 			writer.Write("end");
 		}
 
-		public override void Accept(IVisitor visitor) => visitor.Visit(this);
+
+		public override void Write(IndentAwareTextWriter writer)
+			=> this.Write(writer, false);
+
+
+		public override void Accept(IVisitor visitor)
+			=> visitor.Visit(this);
+
 	}
 
 }

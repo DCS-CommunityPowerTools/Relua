@@ -1,8 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Collections.Generic;
+
+
+
 
 namespace Relua.Deserialization.Statements {
 
@@ -18,29 +17,34 @@ namespace Relua.Deserialization.Statements {
 	///     print("tralse")
 	/// end
 	/// </summary>
-	public class If : Node, IStatement {
-		public ConditionalBlock MainIf;
-		public List<ConditionalBlock> ElseIfs = new List<ConditionalBlock>();
-		public Block Else;
+	public class IfStatement : Node, IStatement {
+
+		public ConditionalBlockStatement MainIf;
+		public List<ConditionalBlockStatement> ElseIfs = new List<ConditionalBlockStatement>();
+		public BlockStatement Else;
+
 
 		public override void Write(IndentAwareTextWriter writer) {
-			MainIf.Write(writer);
-			for (var i = 0; i < ElseIfs.Count; i++) {
+			this.MainIf.Write(writer);
+			for (int i = 0; i < this.ElseIfs.Count; i++) {
 				writer.Write("else");
-				ElseIfs[i].Write(writer);
+				this.ElseIfs[i].Write(writer);
 			}
-			if (Else != null) {
+			if (this.Else != null) {
 				writer.Write("else");
 				writer.IncreaseIndent();
 				writer.WriteLine();
-				Else.Write(writer, false);
+				this.Else.Write(writer, false);
 				writer.DecreaseIndent();
 				writer.WriteLine();
 			}
 			writer.Write("end");
 		}
 
-		public override void Accept(IVisitor visitor) => visitor.Visit(this);
+
+		public override void Accept(IVisitor visitor)
+			=> visitor.Visit(this);
+
 	}
 
 }

@@ -1,8 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Collections.Generic;
+
+
+
 
 namespace Relua.Deserialization.Statements {
 
@@ -18,28 +17,35 @@ namespace Relua.Deserialization.Statements {
 	///     print(v)
 	/// end
 	/// </summary>
-	public class GenericFor : For {
+	public class GenericForStatement : ForStatement {
+
 		public List<string> VariableNames = new List<string>();
 		public IExpression Iterator;
 
+
 		public override void Write(IndentAwareTextWriter writer) {
 			writer.Write("for ");
-			for (var i = 0; i < VariableNames.Count; i++) {
-				writer.Write(VariableNames[i]);
-				if (i < VariableNames.Count - 1) writer.Write(", ");
+			for (int i = 0; i < this.VariableNames.Count; i++) {
+				writer.Write(this.VariableNames[i]);
+				if (i < this.VariableNames.Count - 1) {
+					writer.Write(", ");
+				}
 			}
 			writer.Write(" in ");
-			Iterator.Write(writer);
+			this.Iterator.Write(writer);
 			writer.Write(" do");
 			writer.IncreaseIndent();
 			writer.WriteLine();
-			Block.Write(writer, false);
+			this.Block.Write(writer, false);
 			writer.DecreaseIndent();
 			writer.WriteLine();
 			writer.Write("end");
 		}
 
-		public override void Accept(IVisitor visitor) => visitor.Visit(this);
+
+		public override void Accept(IVisitor visitor)
+			=> visitor.Visit(this);
+
 	}
 
 }

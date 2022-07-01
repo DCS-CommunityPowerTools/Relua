@@ -1,11 +1,9 @@
-﻿using Relua.Deserialization.Exceptions;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using Relua.Exceptions;
 
-namespace Relua.Exceptions {
+
+
+
+namespace Relua.Deserialization.Exceptions {
 
 	/// <summary>
 	/// Exception thrown when the parser runs into invalid syntax.
@@ -14,8 +12,8 @@ namespace Relua.Exceptions {
 
 		public ParserException(string msg, Tokenizer.Region region)
 						: base($"Failed parsing: {msg} [{region.BoundsToString()}]") {
-			Line = region.StartLine;
-			Column = region.StartColumn;
+			this.Line = region.StartLine;
+			this.Column = region.StartColumn;
 		}
 
 		public ParserException(string msg) : base(msg) { }

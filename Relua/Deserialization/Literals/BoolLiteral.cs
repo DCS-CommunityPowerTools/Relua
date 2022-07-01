@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Relua.Deserialization.Literals {
+﻿namespace Relua.Deserialization.Literals {
 
 
 	/// <summary>
@@ -23,7 +17,7 @@ namespace Relua.Deserialization.Literals {
 
 
 		public override void Write(IndentAwareTextWriter writer) {
-			writer.Write(Value ? "true" : "false");
+			writer.Write(this.Value ? "true" : "false");
 		}
 
 

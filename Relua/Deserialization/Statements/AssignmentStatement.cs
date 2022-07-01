@@ -1,11 +1,10 @@
 ﻿using Relua.Deserialization.Definitions;
 using Relua.Deserialization.Expressions;
 using Relua.Deserialization.Literals;
-using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+
+
+
 
 namespace Relua.Deserialization.Statements {
 
@@ -52,11 +51,13 @@ namespace Relua.Deserialization.Statements {
 	/// end
 	/// ```
 	/// </summary>
-	public class Assignment : Node, IStatement {
+	public class AssignmentStatement : Node, IStatement {
+
 		public bool IsLocal;
 		public bool ForceExplicitLocalNil;
 		public List<IAssignable> Targets = new List<IAssignable>();
 		public List<IExpression> Values = new List<IExpression>();
+
 
 		public void WriteNamedFunctionStyle(IndentAwareTextWriter writer, string name, FunctionDefinition func) {
 			writer.Write("function ");
@@ -64,44 +65,65 @@ namespace Relua.Deserialization.Statements {
 			func.Write(writer, from_named: true);
 		}
 
+
 		public void WriteGenericStyle(IndentAwareTextWriter writer) {
 			// note: local declaration is never named function style (because
 			// that automatically implies there's a value assigned)
 
-			for (var i = 0; i < Targets.Count; i++) {
-				var target = Targets[i] as Node;
+			for (int i = 0; i < this.Targets.Count; i++) {
+				Node target = this.Targets[i] as Node;
 				target.Write(writer);
-				if (i != Targets.Count - 1) writer.Write(", ");
+				if (i != this.Targets.Count - 1) {
+					writer.Write(", ");
+				}
 			}
 
-			if (IsLocalDeclaration) return;
+			if (this.IsLocalDeclaration) {
+				return;
+			}
 
 			writer.Write(" = ");
-			for (var i = 0; i < Values.Count; i++) {
-				var value = Values[i] as Node;
+			for (int i = 0; i < this.Values.Count; i++) {
+				Node value = this.Values[i] as Node;
 				value.Write(writer);
-				if (i != Values.Count - 1) writer.Write(", ");
+				if (i != this.Values.Count - 1) {
+					writer.Write(", ");
+				}
 			}
 
-			if (ForceExplicitLocalNil && Values.Count < Targets.Count) {
+			if (this.ForceExplicitLocalNil && this.Values.Count < this.Targets.Count) {
 				// match with nils if ForceExplicitLocalNil is set
-				if (Values.Count > 0) writer.Write(", ");
-				var fill_in_count = Targets.Count - Values.Count;
-				for (var i = 0; i < fill_in_count; i++) {
+				if (this.Values.Count > 0) {
+					writer.Write(", ");
+				}
+
+				int fill_in_count = this.Targets.Count - this.Values.Count;
+				for (int i = 0; i < fill_in_count; i++) {
 					writer.Write("nil");
-					if (i < fill_in_count - 1) writer.Write(", ");
+					if (i < fill_in_count - 1) {
+						writer.Write(", ");
+					}
 				}
 			}
 		}
 
+
 		// Please see explanation in the class summary.
 		public bool IsLocalDeclaration {
 			get {
-				if (ForceExplicitLocalNil) return false;
-				if (IsLocal && Values.Count == 0) return true;
-				if (IsLocal && Targets.Count == Values.Count) {
-					for (var i = 0; i < Values.Count; i++) {
-						if (!(Values[i] is NilLiteral)) return false;
+				if (this.ForceExplicitLocalNil) {
+					return false;
+				}
+
+				if (this.IsLocal && this.Values.Count == 0) {
+					return true;
+				}
+
+				if (this.IsLocal && this.Targets.Count == this.Values.Count) {
+					for (int i = 0; i < this.Values.Count; i++) {
+						if (!(this.Values[i] is NilLiteral)) {
+							return false;
+						}
 					}
 					return true;
 				}
@@ -109,27 +131,38 @@ namespace Relua.Deserialization.Statements {
 			}
 		}
 
+
 		public override void Write(IndentAwareTextWriter writer) {
-			if (IsLocal) writer.Write("local ");
+			if (this.IsLocal) {
+				writer.Write("local ");
+			}
 
-			if (Targets.Count == 1 && Values.Count == 1 && Values[0] is FunctionDefinition) {
-				string funcname = null;
+			if (this.Targets.Count == 1 && this.Values.Count == 1 && this.Values[0] is FunctionDefinition) {
+				string funcname;
 
-				if (Targets[0] is VariableExpression && ((VariableExpression)Targets[0]).Name.IsIdentifier()) {
-					funcname = ((VariableExpression)Targets[0]).Name;
-					WriteNamedFunctionStyle(writer, funcname, Values[0] as FunctionDefinition);
-				} else if (Targets[0] is TableAccessExpression) {
-					var func = Values[0] as FunctionDefinition;
-					funcname = ((TableAccessExpression)Targets[0]).GetIdentifierAccessChain(is_method_access: func.ImplicitSelf);
-					if (funcname != null) WriteNamedFunctionStyle(writer, funcname, func);
-					else WriteGenericStyle(writer);
-				} else WriteGenericStyle(writer);
+				if (this.Targets[0] is VariableExpression && ((VariableExpression)this.Targets[0]).Name.IsIdentifier()) {
+					funcname = ((VariableExpression)this.Targets[0]).Name;
+					this.WriteNamedFunctionStyle(writer, funcname, this.Values[0] as FunctionDefinition);
+				} else if (this.Targets[0] is TableAccessExpression) {
+					FunctionDefinition func = this.Values[0] as FunctionDefinition;
+					funcname = ((TableAccessExpression)this.Targets[0]).GetIdentifierAccessChain(is_method_access: func.ImplicitSelf);
+					if (funcname != null) {
+						this.WriteNamedFunctionStyle(writer, funcname, func);
+					} else {
+						this.WriteGenericStyle(writer);
+					}
+				} else {
+					this.WriteGenericStyle(writer);
+				}
 			} else {
-				WriteGenericStyle(writer);
+				this.WriteGenericStyle(writer);
 			}
 		}
 
-		public override void Accept(IVisitor visitor) => visitor.Visit(this);
+
+		public override void Accept(IVisitor visitor)
+			=> visitor.Visit(this);
+
 	}
 
 }
