@@ -37,7 +37,7 @@
 					s.Write("\\\\");
 				} else if (c == '"') {
 					s.Write("\\\"");
-				} else if (!c.IsASCIIPrintable()) {
+				} else if (!((c >= ' ' && c <= '~') || c > 128)) {
 					s.Write($"\\{((int)c).ToString("D3")}");
 				} else {
 					s.Write(c);

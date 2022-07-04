@@ -2,23 +2,23 @@
 using System;
 using System.Text;
 
+
+
+
 namespace Relua {
+
 	/// <summary>
 	/// Collection of extension methods used internally by Relua.
 	/// </summary>
 	public static class Extensions {
-		public static bool Contains(this Array ary, object elem) {
+		/*public static bool Contains(this Array ary, object elem) {
 			for (int i = 0; i < ary.Length; i++) {
 				if (ary.GetValue(i) == elem) {
 					return true;
 				}
 			}
 			return false;
-		}
-
-		public static bool IsASCIIPrintable(this char c) {
-			return (c >= ' ' && c <= '~') || c > 128;
-		}
+		}*/
 
 		public static bool IsIdentifier(this string s) {
 			if (s.Length == 0) {
